@@ -9,6 +9,7 @@ This module provides models with time-varying transmission rates including:
 
 import numpy as np
 from config import seasonal_forcing, policy_multiplier
+from hospital_models import hill_gate
 
 
 def simulate_age_structured_time_varying(beta_base, age_params, contact_matrix, hosp_capacity,
@@ -192,10 +193,7 @@ def simulate_age_structured_time_varying(beta_base, age_params, contact_matrix, 
         eff_beta = [eff_beta_vax[a] * seasonal_factor * policy_mult for a in range(n_ages)]
         
         # hospital admission gating
-        if K > 0:
-            g = 1 / (1 + (H_total/K)**n)
-        else:
-            g = 0
+        g = hill_gate(H_total, K, n)
         
         # force of infection for each age group
         lambda_foi = [0] * n_ages

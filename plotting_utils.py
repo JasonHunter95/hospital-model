@@ -9,6 +9,55 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+# ========================================
+# Shared Constants and Defaults
+# ========================================
+
+DEFAULT_AGE_LABELS = ['Young', 'Middle', 'Elderly']
+DEFAULT_AGE_COLORS = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+DEFAULT_STRATEGY_COLORS = ['gray', 'skyblue', 'green', 'orange', 'purple', 'red', 'brown']
+
+
+# ========================================
+# Internal Helper Functions (DRY)
+# ========================================
+
+def _setup_axis(ax, xlabel, ylabel, title, grid=True, legend=True, loc='best'):
+    """Configure common axis properties."""
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    if grid:
+        ax.grid(True, alpha=0.3)
+    if legend:
+        ax.legend(loc=loc)
+
+
+def _plot_capacity_line(ax, capacity, color='red', label_prefix='Capacity'):
+    """Add a horizontal capacity reference line."""
+    ax.axhline(y=capacity, color=color, linestyle='--',
+               label=f'{label_prefix} ({capacity})', alpha=0.7)
+
+
+def _setup_summary_panel(ax, lines, fontsize=9):
+    """Set up a monospace text summary panel from a list of lines."""
+    ax.axis('off')
+    summary_text = '\n'.join(lines)
+    ax.text(0.05, 0.5, summary_text, fontsize=fontsize, family='monospace',
+            verticalalignment='center', transform=ax.transAxes)
+
+
+def _print_results_header(title):
+    """Print a formatted results header to console."""
+    print(f"\n{'='*60}")
+    print(title)
+    print(f"{'='*60}")
+
+
+# ========================================
+# Plotting Functions
+# ========================================
+
 def plot_hospital_simulation_stats(times, S_vals, I_vals, X_vals, H_vals, R_vals, 
                                    D_vals, overflow_vals, cum_overflow, cum_unmet, 
                                    hosp_capacity, N):
@@ -232,6 +281,146 @@ def plot_age_structured_results(results, hosp_capacity, age_labels=['Young', 'Mi
     print(f"Cumulative overflow: {results['cum_overflow']:.1f} patient-days")
     for a in range(n_ages):
         print(f"  {age_labels[a]}: {results['D'][a][-1]:.0f} deaths, AR={attack_rates[a]:.1f}%")
+
+
+def plot_age_structured_icu_results(results, age_labels=None, figsize=(18, 14)):
+    """
+    Plot comprehensive results from age-structured SIXHRD model with ward/ICU.
+    
+    Creates a 3x3 grid showing:
+    - Row 1: Infection dynamics (I, X, D by age)
+    - Row 2: Hospital utilization (Ward, ICU, Combined)
+    - Row 3: System performance (Overflow, Deaths breakdown, Summary)
+    
+    Parameters
+    ----------
+    results : dict
+        Results dictionary from simulate_age_structured_model_icu().
+    age_labels : list, optional
+        Labels for age groups (default: ['Young', 'Middle', 'Elderly']).
+    figsize : tuple, optional
+        Figure size (default: (18, 14)).
+    
+    Returns
+    -------
+    None
+        Displays matplotlib figure and prints summary statistics.
+    """
+    if age_labels is None:
+        age_labels = DEFAULT_AGE_LABELS
+    
+    times = results['times']
+    n_ages = len(results['S'])
+    ward_capacity = results['ward_capacity']
+    icu_capacity = results['icu_capacity']
+    
+    fig, axes = plt.subplots(3, 3, figsize=figsize)
+    
+    # Row 1: Infection dynamics by age
+    for a in range(n_ages):
+        axes[0, 0].plot(times, results['I'][a], label=age_labels[a],
+                       color=DEFAULT_AGE_COLORS[a], linewidth=2)
+    _setup_axis(axes[0, 0], 'Time (days)', 'Infected', 'Infected by Age')
+    
+    for a in range(n_ages):
+        axes[0, 1].plot(times, results['X'][a], label=age_labels[a],
+                       color=DEFAULT_AGE_COLORS[a], linewidth=2)
+    _setup_axis(axes[0, 1], 'Time (days)', 'Severe (need care)', 'Severe Cases by Age')
+    
+    for a in range(n_ages):
+        axes[0, 2].plot(times, results['D'][a], label=age_labels[a],
+                       color=DEFAULT_AGE_COLORS[a], linewidth=2)
+    _setup_axis(axes[0, 2], 'Time (days)', 'Cumulative Deaths', 'Deaths by Age')
+    
+    # Row 2: Hospital utilization
+    for a in range(n_ages):
+        axes[1, 0].plot(times, results['H_ward'][a], label=age_labels[a],
+                       color=DEFAULT_AGE_COLORS[a], linewidth=1.5)
+    axes[1, 0].plot(times, results['H_ward_total'], label='Total',
+                   color='black', linewidth=2, linestyle='--')
+    _plot_capacity_line(axes[1, 0], ward_capacity, color='blue', label_prefix='Ward Capacity')
+    _setup_axis(axes[1, 0], 'Time (days)', 'Ward Patients', 'General Ward by Age')
+    
+    for a in range(n_ages):
+        axes[1, 1].plot(times, results['H_icu'][a], label=age_labels[a],
+                       color=DEFAULT_AGE_COLORS[a], linewidth=1.5)
+    axes[1, 1].plot(times, results['H_icu_total'], label='Total',
+                   color='black', linewidth=2, linestyle='--')
+    _plot_capacity_line(axes[1, 1], icu_capacity, color='red', label_prefix='ICU Capacity')
+    _setup_axis(axes[1, 1], 'Time (days)', 'ICU Patients', 'ICU by Age')
+    
+    # Combined hospital burden (stacked area)
+    axes[1, 2].stackplot(times, results['H_ward_total'], results['H_icu_total'],
+                         labels=['Ward', 'ICU'], colors=['#3498db', '#e74c3c'], alpha=0.7)
+    axes[1, 2].axhline(y=ward_capacity + icu_capacity, color='purple', linestyle='--',
+                       label=f'Total Capacity ({ward_capacity + icu_capacity})', alpha=0.7)
+    _setup_axis(axes[1, 2], 'Time (days)', 'Total Hospital Burden', 'Combined Ward + ICU')
+    
+    # Row 3: System performance
+    axes[2, 0].plot(times, results['ward_overflow'], label='Ward Overflow',
+                   color='blue', linewidth=2)
+    axes[2, 0].plot(times, results['icu_overflow'], label='ICU Overflow',
+                   color='red', linewidth=2)
+    axes[2, 0].fill_between(times, results['ward_overflow'], alpha=0.3, color='blue')
+    axes[2, 0].fill_between(times, results['icu_overflow'], alpha=0.3, color='red')
+    _setup_axis(axes[2, 0], 'Time (days)', 'Overflow (patients)', 'Capacity Overflow')
+    
+    # Deaths breakdown bar chart
+    x = np.arange(n_ages)
+    width = 0.5
+    deaths_final = [results['D'][a][-1] for a in range(n_ages)]
+    axes[2, 1].bar(x, deaths_final, width, color=DEFAULT_AGE_COLORS[:n_ages])
+    axes[2, 1].set_xticks(x)
+    axes[2, 1].set_xticklabels(age_labels)
+    _setup_axis(axes[2, 1], 'Age Group', 'Final Deaths', 'Deaths by Age Group', legend=False)
+    axes[2, 1].grid(True, alpha=0.3, axis='y')
+    
+    # Summary statistics panel
+    total_deaths = sum(deaths_final)
+    peak_ward = max(results['H_ward_total'])
+    peak_icu = max(results['H_icu_total'])
+    
+    summary_lines = [
+        "SIMULATION SUMMARY",
+        "━" * 36,
+        "",
+        f"Total Deaths: {total_deaths:.0f}",
+        "",
+        "Peak Occupancy:",
+        f"  Ward: {peak_ward:.1f} / {ward_capacity} ({peak_ward/ward_capacity*100:.0f}%)",
+        f"  ICU: {peak_icu:.1f} / {icu_capacity} ({peak_icu/icu_capacity*100:.0f}%)",
+        "",
+        "Cumulative Overflow (patient-days):",
+        f"  Ward: {results['cum_ward_overflow']:.1f}",
+        f"  ICU: {results['cum_icu_overflow']:.1f}",
+        "",
+        "Deaths by Age:",
+    ]
+    for a in range(n_ages):
+        pct = deaths_final[a] / total_deaths * 100 if total_deaths > 0 else 0
+        summary_lines.append(f"  {age_labels[a]}: {deaths_final[a]:.0f} ({pct:.1f}%)")
+    
+    summary_lines.extend([
+        "",
+        "Unmet Care (patient-days):",
+    ])
+    for a in range(n_ages):
+        summary_lines.append(f"  {age_labels[a]}: Ward={results['cum_unmet_ward'][a]:.1f}, ICU={results['cum_unmet_icu'][a]:.1f}")
+    
+    _setup_summary_panel(axes[2, 2], summary_lines)
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Console summary
+    _print_results_header("Age-Structured ICU Model Results")
+    print(f"Total deaths: {total_deaths:.0f}")
+    print(f"Peak ward: {peak_ward:.1f} / {ward_capacity} ({peak_ward/ward_capacity*100:.0f}%)")
+    print(f"Peak ICU: {peak_icu:.1f} / {icu_capacity} ({peak_icu/icu_capacity*100:.0f}%)")
+    print(f"Cumulative overflow - Ward: {results['cum_ward_overflow']:.1f}, ICU: {results['cum_icu_overflow']:.1f}")
+    print("\nDeaths by age:")
+    for a in range(n_ages):
+        print(f"  {age_labels[a]}: {deaths_final[a]:.0f}")
 
 
 def plot_strategy_comparison(strategy_results, hosp_capacity=100, 
