@@ -363,12 +363,15 @@ pip install jupyter
 
 ```text
 hospital-model/
-├── config.py                  # Centralized configuration parameters
+├── config.py                  # Scenario bundles, presets, and helper functions
+├── master_hospital_model.py   # Unified master model with all features
 ├── hospital_models.py         # Core simulation functions
 ├── simulation_helpers.py      # Helper functions for sweeps and comparisons
 ├── plotting_utils.py          # Visualization functions
-├── time_varying_models.py     # Time-varying transmission extensions
+├── time_varying_helpers.py    # Time-varying transmission utilities
 ├── hospital.ipynb             # Interactive notebook with examples
+├── master_model_experiments.ipynb  # Master model experiments
+├── tests/                     # Unit tests
 └── README.md                  # This file
 ```
 
@@ -376,11 +379,12 @@ hospital-model/
 
 | File | Purpose |
 |------|---------|
-| `config.py` | All default parameters, age-specific disease params, contact matrices, vaccination strategies |
+| `config.py` | Complete scenario bundles, transmission/healthcare/intervention presets, vaccination strategies, and helper functions (`get_scenario_params()`, `list_scenarios()`, etc.) |
+| `master_hospital_model.py` | Unified simulation: `simulate_master_hospital_model()` combining age structure, ward/ICU, seasonality, interventions, waning immunity, and differential mortality |
 | `hospital_models.py` | Core simulation functions: `simulate_hospital_model()`, `simulate_age_structured_model()`, `simulate_age_structured_model_icu()` |
 | `simulation_helpers.py` | Reusable analysis functions: `compare_vaccination_strategies()`, `optimize_vaccine_allocation()`, `sweep_icu_capacity()` |
 | `plotting_utils.py` | Comprehensive visualization: `plot_hospital_simulation_stats()`, `plot_age_structured_results()`, `plot_age_structured_icu_results()` |
-| `time_varying_models.py` | Time-varying extensions: `simulate_age_structured_time_varying()` |
+| `time_varying_helpers.py` | Time-varying transmission utilities |
 
 ---
 
@@ -571,7 +575,176 @@ plot_time_varying_results(results, hosp_capacity=100)
 
 ## Configuration
 
-### Default Parameters (`config.py`)
+The `config.py` module provides a hierarchical configuration system with ready-to-use scenario bundles, modular presets, and helper functions for the master hospital model.
+
+### Quick Start with Scenarios
+
+The easiest way to run simulations is using pre-built scenario bundles:
+
+```python
+from config import get_scenario_params, list_scenarios, describe_scenario
+from master_hospital_model import simulate_master_hospital_model
+
+# List available scenarios
+print(list_scenarios())
+# ['baseline', 'covid_early_2020', 'covid_delta', 'covid_omicron', 'seasonal_flu',
+#  'endemic', 'stress_test', 'optimal_response', 'resource_limited', ...]
+
+# Get detailed description
+print(describe_scenario('covid_delta'))
+
+# Run simulation with scenario defaults
+params = get_scenario_params('covid_delta')
+results = simulate_master_hospital_model(**params)
+```
+
+### Available Scenario Bundles
+
+| Scenario | Description | Key Features |
+|----------|-------------|---------------|
+| `baseline` | Default moderate outbreak | Urban setting, no interventions |
+| `covid_early_2020` | Early pandemic wave | Delayed lockdown, no vaccines |
+| `covid_delta` | Delta variant wave | High transmission, partial vaccination |
+| `covid_omicron` | Omicron wave | Very high transmission, immune escape |
+| `seasonal_flu` | Typical flu season | Strong seasonality, elderly priority vaccines |
+| `endemic` | Long-term dynamics | 2-year simulation with waning immunity |
+| `stress_test` | Hospital capacity crisis | High transmission, limited rural capacity |
+| `optimal_response` | Best-case intervention | Early lockdown + high vaccination |
+| `resource_limited` | Low-resource setting | Constrained healthcare system |
+| `school_outbreak` | School-seeded outbreak | Young seed, school closure |
+| `care_home_outbreak` | Care home outbreak | Elderly seed, shielding |
+| `surge_capacity` | Surge capacity test | Field hospital activation |
+| `cyclical_policy` | On-off lockdowns | Intermittent intervention strategy |
+
+### Configuration Hierarchy
+
+`config.py` is organized into modular presets that can be mixed and matched:
+
+#### 1. Transmission Rate Presets (`TRANSMISSION_PRESETS`)
+
+```python
+TRANSMISSION_PRESETS = {
+    'very_mild': {'beta_base': 0.12, 'approx_R0': 1.2},  # Seasonal cold
+    'mild':      {'beta_base': 0.18, 'approx_R0': 1.5},  # Seasonal flu
+    'moderate':  {'beta_base': 0.28, 'approx_R0': 2.5},  # Early COVID
+    'high':      {'beta_base': 0.38, 'approx_R0': 3.5},  # Delta variant
+    'severe':    {'beta_base': 0.45, 'approx_R0': 4.5},  # Omicron
+    'extreme':   {'beta_base': 0.55, 'approx_R0': 6.0},  # Measles-like
+}
+```
+
+#### 2. Healthcare System Configurations
+
+Bundled capacity + population presets:
+
+| System | Ward | ICU | Population | Description |
+|--------|------|-----|------------|-------------|
+| `HEALTHCARE_SYSTEM_SMALL` | 40 | 8 | 40,000 | Rural community hospital |
+| `HEALTHCARE_SYSTEM_RURAL` | 80 | 20 | 100,000 | Regional rural network |
+| `HEALTHCARE_SYSTEM_SUBURBAN` | 160 | 40 | 200,000 | Mid-sized suburban |
+| `HEALTHCARE_SYSTEM_URBAN` | 400 | 100 | 400,000 | Urban medical center |
+| `HEALTHCARE_SYSTEM_METROPOLITAN` | 1,600 | 400 | 2,000,000 | Large metro area |
+| `HEALTHCARE_SYSTEM_WELL_RESOURCED` | 2,400 | 600 | 2,000,000 | High-income region |
+| `HEALTHCARE_SYSTEM_RESOURCE_LIMITED` | 200 | 25 | 2,000,000 | Low-resource setting |
+| `HEALTHCARE_SYSTEM_SURGE_MILD` | 500 | 125 | 400,000 | +25% surge capacity |
+| `HEALTHCARE_SYSTEM_SURGE_MAJOR` | 600 | 150 | 400,000 | +50% field hospitals |
+
+Access via helper function:
+
+```python
+from config import get_healthcare_systems
+systems = get_healthcare_systems()  # Returns dict of all systems
+```
+
+#### 3. Intervention Templates
+
+```python
+INTERVENTION_EARLY_STRONG      # Day 14-60, 60% reduction
+INTERVENTION_DELAYED_STRONG    # Day 45-105, 60% reduction
+INTERVENTION_TIERED_ESCALATING # 3 phases: 20% → 40% → 60%
+INTERVENTION_TIERED_DEESCALATING  # 3 phases: 60% → 40% → 20%
+INTERVENTION_CYCLICAL          # On-off cycling (21 days on/off)
+INTERVENTION_SUSTAINED_MODERATE # Day 30-150, 30% reduction
+INTERVENTION_SHORT_SHARP       # Day 25-39, 70% reduction
+INTERVENTION_MULTI_WAVE        # 3 separate intervention periods
+```
+
+#### 4. Waning Immunity Presets
+
+```python
+WANING_NONE       # No waning (permanent immunity)
+WANING_SLOW       # omega=0.001, ~3 year immunity
+WANING_MODERATE   # omega=0.003, ~1 year immunity
+WANING_FAST       # omega=0.005, ~6 month immunity
+WANING_VERY_FAST  # omega=0.01, ~3 month immunity
+WANING_AGE_DIFFERENTIAL  # Age-specific: elderly wane faster
+```
+
+#### 5. Vaccination Strategies
+
+```python
+from config import get_vaccination_strategies
+
+strategies = get_vaccination_strategies()  # Returns normalized {name: [coverage_list]}
+# Available: 'none', 'uniform_low/moderate/high', 'elderly_priority', 
+# 'elderly_only', 'working_age_priority', 'young_priority', 
+# 'balanced_risk', 'herd_immunity_target'
+```
+
+#### 6. Contact Matrices
+
+```python
+CONTACT_MATRIX_DEFAULT       # Assortative mixing by age
+CONTACT_MATRIX_HOMOGENEOUS   # Equal mixing across ages
+CONTACT_MATRIX_ASSORTATIVE   # Strong within-age preference
+CONTACT_MATRIX_SCHOOL_CLOSURE    # Reduced young contacts
+CONTACT_MATRIX_WORK_FROM_HOME    # Reduced middle-age contacts
+CONTACT_MATRIX_ELDERLY_SHIELDING # Reduced elderly contacts
+```
+
+### Creating Custom Scenarios
+
+```python
+from config import create_custom_scenario, HEALTHCARE_SYSTEM_URBAN, INTERVENTION_EARLY_STRONG
+
+my_scenario = create_custom_scenario(
+    name='My Custom Outbreak',
+    beta_base=0.35,
+    healthcare_system=HEALTHCARE_SYSTEM_URBAN,
+    vaccination_coverage=[0.3, 0.5, 0.9],
+    interventions=INTERVENTION_EARLY_STRONG,
+    VE=0.8,
+    Tmax=300,
+    description='Custom scenario with high elderly vaccination'
+)
+
+# Convert to simulation parameters
+from config import get_scenario_params
+# Add to registry temporarily or use directly
+```
+
+### Backward Compatibility
+
+> **Note:** All legacy exports continue to work for existing code. The following are preserved:
+
+```python
+# Legacy exports (still work)
+from config import (
+    AGE_POPS_DEFAULT,           # [3000, 5000, 2000]
+    AGE_PARAMS_DEFAULT,         # Active parameter set
+    CONTACT_MATRIX_DEFAULT,     # Default contact matrix
+    DEFAULT_SIM_PARAMS,         # Simulation parameters
+    DEFAULT_CAPACITY_PARAMS,    # Capacity parameters
+    LOCKDOWN_SCENARIO,          # Legacy intervention
+    MULTIPLE_WAVES_SCENARIO,    # Legacy intervention
+    SEASONAL_PARAMS,            # Legacy seasonal params
+    WANING_PARAMS,              # Legacy waning params
+    VACCINATION_STRATEGIES,     # Includes both old and new formats
+    YOUNG_PARAMS, MIDDLE_PARAMS, ELDERLY_PARAMS,  # Teaching params
+)
+```
+
+### Default Parameters Reference
 
 #### Simulation Parameters
 
@@ -586,58 +759,27 @@ DEFAULT_SIM_PARAMS = {
 }
 ```
 
-#### Capacity Parameters
+#### Age-Specific Disease Parameters (Empirical/COVID-calibrated)
 
-```python
-DEFAULT_CAPACITY_PARAMS = {
-    'ward_capacity': 80,
-    'icu_capacity': 20,
-    'total_capacity': 100
-}
-```
+| Parameter | Young (0-19) | Middle (20-64) | Elderly (65+) |
+|-----------|--------------|----------------|---------------|
+| `alpha` (E→I) | 0.2 | 0.2 | 0.18 |
+| `sigma` (→ severe) | 0.02 | 0.08 | 0.15 |
+| `eta` (→ ward) | 0.05 | 0.15 | 0.35 |
+| `eta_icu` (→ ICU) | 0.02 | 0.10 | 0.25 |
+| `mu_X` (severe mortality) | 0.002 | 0.008 | 0.025 |
+| `mu_ward` | 0.001 | 0.005 | 0.015 |
+| `mu_icu` | 0.005 | 0.02 | 0.04 |
 
 #### Differential Mortality Parameters
 
 ```python
 DIFFERENTIAL_MORTALITY_PARAMS = {
-    'mu_X_untreated_multiplier': 2.0,            # Multiplier when hospital admission is denied
-    'mu_ward_denied_icu_multiplier': 1.5,        # Multiplier when ICU escalation is denied
+    'mu_X_untreated_multiplier': 2.0,            # Multiplier when hospital denied
+    'mu_ward_denied_icu_multiplier': 1.5,        # Multiplier when ICU denied
     'mu_X_untreated_multiplier_young': 1.5,      # Age-specific overrides
     'mu_X_untreated_multiplier_middle': 2.0,
     'mu_X_untreated_multiplier_elderly': 3.0,
-    'mu_ward_denied_icu_multiplier_young': 1.3,
-    'mu_ward_denied_icu_multiplier_middle': 1.5,
-    'mu_ward_denied_icu_multiplier_elderly': 2.0
-}
-```
-
-#### Age-Specific Disease Parameters
-
-| Parameter | Young (0-19) | Middle (20-64) | Elderly (65+) |
-|-----------|--------------|----------------|---------------|
-| `sigma` (→ severe) | 0.1 | 0.2 | 0.3 |
-| `eta` (→ ward) | 0.2 | 0.3 | 0.5 |
-| `eta_icu` (→ ICU) | 0.05 | 0.15 | 0.3 |
-| `mu_ward` | 0.003 | 0.01 | 0.04 |
-| `mu_icu` | 0.02 | 0.06 | 0.20 |
-
-#### Contact Matrices
-
-Three predefined contact matrices:
-
-- `CONTACT_MATRIX_DEFAULT`: Assortative mixing (age groups prefer same-age contacts)
-- `CONTACT_MATRIX_HOMOGENEOUS`: Equal mixing across all ages
-- `CONTACT_MATRIX_ASSORTATIVE`: Strong within-age-group preference
-
-#### Vaccination Strategies
-
-```python
-VACCINATION_STRATEGIES = {
-    'No vaccination': [0.0, 0.0, 0.0],
-    'Uniform 30%': [0.3, 0.3, 0.3],
-    'Elderly priority': [0.1, 0.2, 0.7],
-    'Young priority': [0.7, 0.2, 0.1],
-    'Middle priority': [0.1, 0.7, 0.2]
 }
 ```
 
@@ -816,6 +958,41 @@ Calculate time-varying transmission with seasonality.
 #### `policy_multiplier(t, interventions)`
 
 Calculate transmission multiplier from active interventions.
+
+### Configuration Helper Functions (`config.py`)
+
+#### `get_scenario_params(scenario_name)`
+
+Extract parameters from a scenario bundle for `simulate_master_hospital_model()`.
+
+```python
+params = get_scenario_params('covid_delta')
+results = simulate_master_hospital_model(**params)
+```
+
+#### `list_scenarios()`
+
+Return list of available scenario names.
+
+#### `describe_scenario(scenario_name)`
+
+Return detailed multi-line description of a scenario.
+
+#### `get_healthcare_systems()`
+
+Return dictionary of all healthcare system configurations.
+
+#### `get_vaccination_strategies()`
+
+Return vaccination strategies as normalized `{name: [coverage_list]}` format, compatible with `compare_vaccination_strategies()` and other helper functions.
+
+#### `validate_age_params(age_params)`
+
+Validate that age parameter dictionaries contain all required keys. Returns `True` if valid, raises `ValueError` with details if not.
+
+#### `create_custom_scenario(name, beta_base, healthcare_system, vaccination_coverage, **kwargs)`
+
+Create a custom scenario configuration dictionary.
 
 ---
 
