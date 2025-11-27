@@ -14,19 +14,24 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
   - [Ward/ICU Separation](#wardicu-separation)
   - [Master Model](#master-model)
   - [Time-Varying Extensions](#time-varying-extensions)
+  - [Three-Factor Vaccine Model](#three-factor-vaccine-model)
 - [Mathematical Foundations](#mathematical-foundations)
   - [Force of Infection](#force-of-infection)
   - [Hill Function Gating](#hill-function-gating)
   - [Complete ODE System](#complete-ode-system)
   - [Differential Mortality](#differential-mortality-equations)
   - [Time-Varying Transmission](#time-varying-transmission-equations)
+  - [Vaccination Dynamics](#vaccination-dynamics-equations)
 - [Installation](#installation)
+- [Testing](#testing)
+- [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
 - [Usage](#usage)
   - [Basic Simulation](#basic-simulation)
   - [Age-Structured Model](#age-structured-model)
   - [Ward/ICU Model](#wardicu-model-usage)
   - [Master Model](#master-model-usage)
+  - [Vaccination Scenarios](#vaccination-usage)
   - [Time-Varying Scenarios](#time-varying-scenarios)
 - [Configuration](#configuration)
 - [Key Features](#key-features)
@@ -179,6 +184,91 @@ The `time_varying_models` module supports:
 1. **Seasonal transmission**: Periodic variation in transmission rate
 2. **Policy interventions**: Step functions reducing transmission during lockdowns
 3. **Waning immunity**: Flow from R → S at rate ω, enabling reinfection dynamics
+
+### Three-Factor Vaccine Model
+
+The model implements a **Three-Factor Vaccine Model** with vaccinated compartments that mirror the unvaccinated pathway:
+
+#### Vaccinated Compartments
+
+| Compartment | Description |
+|-------------|-------------|
+| **S_vax** | Vaccinated susceptible - can still be infected (breakthrough) |
+| **E_vax** | Vaccinated exposed - breakthrough infection in latent period |
+| **I_vax** | Vaccinated infected - breakthrough with mild symptoms |
+| **X_vax** | Vaccinated severe - breakthrough needing hospitalization |
+| **H_ward_vax** | Vaccinated in ward - breakthrough requiring ward care |
+| **H_icu_vax** | Vaccinated in ICU - breakthrough requiring critical care |
+| **R_vax** | Vaccinated recovered - recovered from breakthrough infection |
+| **D_vax** | Vaccinated deaths - deaths despite vaccination |
+
+**Flow diagram with vaccination:**
+
+```text
+Unvaccinated:  S  → E  → I  → X  → H_ward  → H_icu  → R
+               ↓                                       ↓
+               ↓ vaccination                          D
+               ↓
+Vaccinated:   S_vax → E_vax → I_vax → X_vax → H_ward_vax → H_icu_vax → R_vax
+                      (reduced)  (reduced)  (reduced rates)              ↓
+                                                                      D_vax (reduced)
+```
+
+#### Three-Factor Efficacy Mechanism
+
+The vaccine provides protection through three distinct efficacy parameters:
+
+| Parameter | Symbol | Description | Effect |
+|-----------|--------|-------------|--------|
+| **VE_infection** | $VE_I$ | Vaccine efficacy against infection | Reduces force of infection on S_vax |
+| **VE_severe** | $VE_S$ | Vaccine efficacy against severe disease | Reduces I_vax → X_vax progression |
+| **VE_death** | $VE_D$ | Vaccine efficacy against death | Reduces all mortality rates in vaccinated |
+
+**Example values (mRNA vaccine vs Delta variant):**
+
+```python
+VE_infection = 0.80  # 80% reduction in infection risk
+VE_severe = 0.90     # 90% reduction in severe disease progression
+VE_death = 0.95      # 95% reduction in mortality
+```
+
+#### Vaccine Profiles
+
+Pre-configured vaccine profiles are available:
+
+| Profile | VE_infection | VE_severe | VE_death | Description |
+|---------|--------------|-----------|----------|-------------|
+| `mrna_original` | 0.80 | 0.90 | 0.95 | Pfizer/Moderna vs original strain |
+| `mrna_omicron` | 0.30 | 0.70 | 0.85 | mRNA vs Omicron (immune escape) |
+| `adenovirus` | 0.65 | 0.80 | 0.90 | AstraZeneca/J&J type |
+| `inactivated` | 0.50 | 0.70 | 0.85 | Sinovac/Sinopharm type |
+| `influenza_typical` | 0.40 | 0.60 | 0.75 | Seasonal flu vaccine |
+| `ideal` | 0.95 | 0.98 | 0.99 | Ideal vaccine benchmark |
+| `minimal` | 0.20 | 0.40 | 0.50 | Minimal protection scenario |
+
+```python
+from config import get_vaccine_profile, list_vaccine_profiles
+
+# List available profiles
+print(list_vaccine_profiles())
+
+# Get profile parameters
+profile = get_vaccine_profile('mrna_original')
+# {'VE_infection': 0.80, 'VE_severe': 0.90, 'VE_death': 0.95, ...}
+```
+
+#### Vaccine Waning
+
+Vaccine-induced immunity can wane over time:
+
+```python
+vaccine_waning_params = {
+    'omega_vax': 0.005,  # Waning rate (~200 day immunity duration)
+    'wane_to_S': True    # Wane to S (unvaccinated) or S_vax (remains vaccinated)
+}
+```
+
+When `wane_to_S=True`, vaccinated recovered individuals (R_vax) return to unvaccinated susceptible (S), losing vaccine protection. When `wane_to_S=False`, they return to S_vax, remaining in the vaccinated population.
 
 ---
 
@@ -333,6 +423,90 @@ $$X(t + \Delta t) = X(t) + \frac{dX}{dt} \cdot \Delta t$$
 
 All compartments are constrained to be non-negative after each update.
 
+### Vaccination Dynamics Equations
+
+The Three-Factor Vaccine Model adds 8 vaccinated compartments parallel to the unvaccinated pathway.
+
+#### Vaccination Flow
+
+Susceptible individuals are vaccinated at rate $v$ (vaccination_rate):
+
+$$\frac{dS_a}{dt} = -\lambda_a S_a - v_a S_a + \omega_a R_a$$
+
+$$\frac{dS_{\text{vax},a}}{dt} = v_a S_a - \lambda_{\text{vax},a} S_{\text{vax},a} + \omega_{\text{vax},a} R_{\text{vax},a} \cdot (1 - w_{S})$$
+
+Where:
+- $v_a$ — age-specific vaccination rate
+- $w_S$ — wane_to_S flag (1 = wane to S, 0 = wane to S_vax)
+
+#### Reduced Force of Infection for Vaccinated
+
+VE_infection reduces the force of infection for vaccinated susceptibles:
+
+$$\lambda_{\text{vax},a} = (1 - VE_I) \cdot \lambda_a$$
+
+Where $\lambda_a$ is the standard force of infection including both unvaccinated and vaccinated infectious individuals:
+
+$$\lambda_a = \beta_{\text{eff}} \sum_{b} C_{ab} \frac{I_b + I_{\text{vax},b} \cdot \theta_{\text{vax}} + \theta_X (X_b + X_{\text{vax},b}) + \theta_H (H_b + H_{\text{vax},b})}{N_b}$$
+
+The parameter $\theta_{\text{vax}}$ represents the relative infectiousness of breakthrough infections (default: 0.5).
+
+#### Reduced Progression to Severe Disease
+
+VE_severe reduces the rate at which vaccinated infected individuals progress to severe disease:
+
+$$\sigma_{\text{vax},a} = (1 - VE_S) \cdot \sigma_a$$
+
+$$\frac{dX_{\text{vax},a}}{dt} = \sigma_{\text{vax},a} I_{\text{vax},a} - (\gamma_{X,a} + \mu_{X,\text{vax,eff}}) X_{\text{vax},a} - \text{admit}_{\text{ward,vax},a}$$
+
+#### Reduced Mortality
+
+VE_death reduces all mortality rates in vaccinated compartments:
+
+$$\mu_{I,\text{vax}} = (1 - VE_D) \cdot \mu_I$$
+$$\mu_{X,\text{vax}} = (1 - VE_D) \cdot \mu_X$$
+$$\mu_{\text{ward,vax}} = (1 - VE_D) \cdot \mu_{\text{ward}}$$
+$$\mu_{\text{icu,vax}} = (1 - VE_D) \cdot \mu_{\text{icu}}$$
+
+#### Vaccinated Compartment ODEs
+
+**Vaccinated Exposed:**
+$$\frac{dE_{\text{vax},a}}{dt} = \lambda_{\text{vax},a} S_{\text{vax},a} - \alpha_a E_{\text{vax},a}$$
+
+**Vaccinated Infected (mild):**
+$$\frac{dI_{\text{vax},a}}{dt} = \alpha_a E_{\text{vax},a} - (\gamma_{I,a} + \mu_{I,\text{vax}} + \sigma_{\text{vax},a}) I_{\text{vax},a}$$
+
+**Vaccinated Severe:**
+$$\frac{dX_{\text{vax},a}}{dt} = \sigma_{\text{vax},a} I_{\text{vax},a} - (\gamma_{X,a} + \mu_{X,\text{vax,eff}}) X_{\text{vax},a} - \text{admit}_{\text{ward,vax},a}$$
+
+**Vaccinated Ward:**
+$$\frac{dH_{\text{ward,vax},a}}{dt} = \text{admit}_{\text{ward,vax},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward,vax,eff}}) H_{\text{ward,vax},a} - \text{admit}_{\text{icu,vax},a}$$
+
+**Vaccinated ICU:**
+$$\frac{dH_{\text{icu,vax},a}}{dt} = \text{admit}_{\text{icu,vax},a} - (\gamma_{\text{icu},a} + \mu_{\text{icu,vax}}) H_{\text{icu,vax},a}$$
+
+**Vaccinated Recovered:**
+$$\frac{dR_{\text{vax},a}}{dt} = \gamma_{I,a} I_{\text{vax},a} + \gamma_{X,a} X_{\text{vax},a} + \gamma_{\text{ward},a} H_{\text{ward,vax},a} + \gamma_{\text{icu},a} H_{\text{icu,vax},a} - \omega_{\text{vax},a} R_{\text{vax},a}$$
+
+**Vaccinated Deaths:**
+$$\frac{dD_{\text{vax},a}}{dt} = \mu_{I,\text{vax}} I_{\text{vax},a} + \mu_{X,\text{vax,eff}} X_{\text{vax},a} + \mu_{\text{ward,vax,eff}} H_{\text{ward,vax},a} + \mu_{\text{icu,vax}} H_{\text{icu,vax},a}$$
+
+#### Vaccine Waning
+
+When vaccine immunity wanes, R_vax individuals return to either S (if wane_to_S=True) or S_vax (if wane_to_S=False):
+
+$$\frac{dR_{\text{vax},a}}{dt} = \text{(recoveries)} - \omega_{\text{vax},a} R_{\text{vax},a}$$
+
+$$\frac{dS_a}{dt} += \omega_{\text{vax},a} R_{\text{vax},a} \cdot w_S$$
+
+$$\frac{dS_{\text{vax},a}}{dt} += \omega_{\text{vax},a} R_{\text{vax},a} \cdot (1 - w_S)$$
+
+#### Population Conservation
+
+With vaccination, the total population across all 16 compartments is conserved:
+
+$$N = \sum_a (S_a + E_a + I_a + X_a + H_{\text{ward},a} + H_{\text{icu},a} + R_a + D_a + S_{\text{vax},a} + E_{\text{vax},a} + I_{\text{vax},a} + X_{\text{vax},a} + H_{\text{ward,vax},a} + H_{\text{icu,vax},a} + R_{\text{vax},a} + D_{\text{vax},a})$$
+
 ---
 
 ## Installation
@@ -359,6 +533,148 @@ pip install jupyter
 
 ---
 
+## Testing
+
+The project includes a comprehensive test suite with **229 tests** covering all simulation functions, helper utilities, vaccination compartments, and edge cases.
+
+### Running Tests
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run with short traceback (recommended)
+python -m pytest tests/ -v --tb=short
+
+# Run specific test file
+python -m pytest tests/test_helper_functions.py -v
+python -m pytest tests/test_master_model_integration.py -v
+python -m pytest tests/test_time_varying_behavior.py -v
+python -m pytest tests/test_edge_cases.py -v
+python -m pytest tests/test_differential_mortality.py -v
+
+# Run specific test class
+python -m pytest tests/test_helper_functions.py::TestHillGate -v
+
+# Run specific test
+python -m pytest tests/test_helper_functions.py::TestHillGate::test_half_occupancy -v
+
+# Run tests matching a pattern
+python -m pytest tests/ -v -k "mortality"
+python -m pytest tests/ -v -k "conservation"
+```
+
+### Test Categories
+
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `test_helper_functions.py` | 48 | `hill_gate`, `_validate_age_structured_inputs`, `_coerce_initial_vector`, `seasonal_forcing`, `policy_multiplier` |
+| `test_master_model_integration.py` | 45 | Smoke tests, output structure, population conservation, death monotonicity, compartment flows |
+| `test_time_varying_behavior.py` | 25 | Seasonal forcing, policy interventions, waning immunity, combined effects |
+| `test_edge_cases.py` | 40 | No infection, full vaccination, zero/high capacity, single age group, extreme parameters |
+| `test_differential_mortality.py` | 31 | D_treated vs D_untreated tracking, capacity-dependent mortality, gating correlation |
+| `test_vaccination_compartments.py` | 40 | Three-Factor Vaccine Model, breakthrough infections, VE efficacy, vaccine waning, population conservation |
+
+### Test Organization
+
+Tests are organized using pytest classes for logical grouping:
+
+```python
+# Example: tests/test_helper_functions.py
+class TestHillGate:           # 13 tests for hill_gate()
+class TestValidateInputs:     # 8 tests for _validate_age_structured_inputs()
+class TestCoerceVector:       # 8 tests for _coerce_initial_vector()
+class TestSeasonalForcing:    # 12 tests for seasonal_forcing()
+class TestPolicyMultiplier:   # 14 tests for policy_multiplier()
+```
+
+### Pytest Options
+
+```bash
+# Show test durations (find slow tests)
+python -m pytest tests/ --durations=10
+
+# Stop on first failure
+python -m pytest tests/ -x
+
+# Run last failed tests only
+python -m pytest tests/ --lf
+
+# Show local variables in tracebacks
+python -m pytest tests/ --tb=long --showlocals
+
+# Quiet mode (just pass/fail summary)
+python -m pytest tests/ -q
+
+# Very verbose (show each assertion)
+python -m pytest tests/ -vv
+```
+
+### Fixtures
+
+Shared test fixtures are defined in `tests/conftest.py`:
+
+| Fixture | Description |
+|---------|-------------|
+| `minimal_inputs` | Standard 3-age-group simulation inputs |
+| `minimal_inputs_single_age` | Single age group inputs |
+| `high_capacity_inputs` | Abundant hospital capacity (no overflow) |
+| `low_capacity_inputs` | Severely constrained capacity |
+| `zero_capacity_inputs` | Zero hospital beds |
+| `seasonal_inputs` | Inputs with seasonal forcing enabled |
+| `intervention_inputs` | Inputs with policy interventions |
+| `waning_inputs` | Inputs with waning immunity |
+| `full_vaccination_inputs` | 100% vaccine coverage |
+| `no_infection_inputs` | Zero initial infections |
+| `config_defaults` | Default parameters from config.py |
+
+---
+
+## Development Setup
+
+For contributors and developers:
+
+### Virtual Environment Setup
+
+```bash
+# Create virtual environment
+python -m venv .venv
+
+# Activate (macOS/Linux)
+source .venv/bin/activate
+
+# Activate (Windows)
+.venv\Scripts\activate
+
+# Install dependencies
+pip install numpy matplotlib pytest
+
+# (Optional) Install Jupyter for notebooks
+pip install jupyter
+```
+
+### Running the Test Suite
+
+```bash
+# Verify installation
+python -c "import numpy; import matplotlib; import pytest; print('All dependencies installed')"
+
+# Run full test suite
+python -m pytest tests/ -v --tb=short
+
+# Expected output: 229 passed
+```
+
+### Code Quality Checks
+
+Before submitting changes, ensure:
+
+1. **All tests pass**: `python -m pytest tests/ -v`
+2. **No regressions**: Run tests related to modified code
+3. **New features have tests**: Add tests for any new functionality
+
+---
+
 ## Project Structure
 
 ```text
@@ -371,7 +687,14 @@ hospital-model/
 ├── time_varying_helpers.py    # Time-varying transmission utilities
 ├── hospital.ipynb             # Interactive notebook with examples
 ├── master_model_experiments.ipynb  # Master model experiments
-├── tests/                     # Unit tests
+├── tests/                     # Comprehensive test suite (189 tests)
+│   ├── __init__.py            # Test package marker
+│   ├── conftest.py            # Shared pytest fixtures
+│   ├── test_helper_functions.py       # Unit tests for helper functions
+│   ├── test_master_model_integration.py  # Integration tests for main simulation
+│   ├── test_time_varying_behavior.py  # Time-varying dynamics tests
+│   ├── test_edge_cases.py     # Boundary condition tests
+│   └── test_differential_mortality.py  # D_treated/D_untreated tests
 └── README.md                  # This file
 ```
 
@@ -385,6 +708,8 @@ hospital-model/
 | `simulation_helpers.py` | Reusable analysis functions: `compare_vaccination_strategies()`, `optimize_vaccine_allocation()`, `sweep_icu_capacity()` |
 | `plotting_utils.py` | Comprehensive visualization: `plot_hospital_simulation_stats()`, `plot_age_structured_results()`, `plot_age_structured_icu_results()` |
 | `time_varying_helpers.py` | Time-varying transmission utilities |
+| `tests/conftest.py` | Shared pytest fixtures for all test files |
+| `tests/test_*.py` | Test modules covering helpers, integration, edge cases, and mortality tracking |
 
 ---
 
@@ -537,11 +862,142 @@ print(f"Peak ICU: {max(results['H_icu_total']):.0f}")
 |-------|-------------|
 | `S`, `E`, `I`, `X`, `R`, `D` | Compartments by age (list of arrays) |
 | `H_ward`, `H_icu` | Hospital compartments by age |
+| `S_vax`, `E_vax`, `I_vax`, `X_vax`, `R_vax`, `D_vax` | Vaccinated compartments by age |
+| `H_ward_vax`, `H_icu_vax` | Vaccinated hospital compartments by age |
 | `H_ward_total`, `H_icu_total` | Aggregated hospital occupancy |
 | `D_treated`, `D_untreated` | Deaths by care status |
+| `D_vax`, `D_vax_total` | Vaccinated deaths |
 | `beta_t`, `seasonal_factor`, `policy_mult` | Time-varying parameters |
 | `g_ward`, `g_icu` | Admission gating factors over time |
 | `cum_ward_overflow`, `cum_icu_overflow` | Cumulative overflow burden |
+| `breakthrough_infections` | Cumulative breakthrough infections |
+
+### Vaccination Usage
+
+The Three-Factor Vaccine Model supports comprehensive vaccination dynamics:
+
+#### Basic Vaccination
+
+```python
+from master_hospital_model import simulate_master_hospital_model
+import config
+
+# Simple vaccination scenario
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_params=config.AGE_PARAMS_DEFAULT,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[3000, 5000, 2000],
+    
+    # Three-Factor Vaccine Efficacy
+    vaccination_rate=0.02,     # 2% of susceptibles vaccinated per day
+    VE_infection=0.7,          # 70% reduction in infection risk
+    VE_severe=0.85,            # 85% reduction in severe disease
+    VE_death=0.95,             # 95% reduction in mortality
+    
+    Tmax=200
+)
+
+# Access vaccination results
+print(f"Total vaccinated susceptible: {sum(results['S_vax'][a][-1] for a in range(3)):.0f}")
+print(f"Breakthrough infections (cumulative): {results['breakthrough_infections'][-1]:.0f}")
+print(f"Vaccinated deaths: {sum(results['D_vax'][a][-1] for a in range(3)):.0f}")
+```
+
+#### Using Vaccine Profiles
+
+```python
+from config import get_vaccine_profile, list_vaccine_profiles, describe_vaccine_profile
+
+# List available profiles
+print(list_vaccine_profiles())
+# ['mrna_original', 'mrna_omicron', 'adenovirus', 'inactivated', 'influenza_typical', 'ideal', 'minimal']
+
+# Describe a profile
+print(describe_vaccine_profile('mrna_original'))
+
+# Use profile in simulation
+profile = get_vaccine_profile('mrna_original')
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_params=config.AGE_PARAMS_DEFAULT,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[3000, 5000, 2000],
+    vaccination_rate=0.01,
+    VE_infection=profile['VE_infection'],
+    VE_severe=profile['VE_severe'],
+    VE_death=profile['VE_death'],
+    Tmax=200
+)
+```
+
+#### Age-Specific Vaccination Rates
+
+```python
+# Prioritize elderly vaccination
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_params=config.AGE_PARAMS_DEFAULT,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[3000, 5000, 2000],
+    
+    vaccination_rate=[0.005, 0.01, 0.03],  # Elderly 3x faster
+    VE_infection=0.7,
+    VE_severe=0.85,
+    VE_death=0.95,
+    
+    Tmax=200
+)
+```
+
+#### Vaccine Waning
+
+```python
+# Vaccine immunity wanes over time
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_params=config.AGE_PARAMS_DEFAULT,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[3000, 5000, 2000],
+    
+    vaccination_rate=0.02,
+    VE_infection=0.7,
+    VE_severe=0.85,
+    VE_death=0.95,
+    
+    # Vaccine waning configuration
+    vaccine_waning_params={
+        'omega_vax': 0.005,    # ~200 day immunity duration
+        'wane_to_S': True,     # Waned individuals become fully susceptible
+    },
+    
+    Tmax=365
+)
+```
+
+#### Initial Vaccinated Population
+
+```python
+# Start with some population already vaccinated
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_params=config.AGE_PARAMS_DEFAULT,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[3000, 5000, 2000],
+    
+    initial_conditions={
+        'S_vax_by_age': [500, 1500, 1200],  # Already vaccinated
+        'I_by_age': [10, 10, 10],           # Initial infections
+    },
+    
+    vaccination_rate=0.01,
+    VE_infection=0.7,
+    VE_severe=0.85,
+    VE_death=0.95,
+    
+    Tmax=200
+)
+```
 
 ### Time-Varying Scenarios
 

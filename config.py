@@ -35,7 +35,103 @@ DEFAULT_SIM_PARAMS = {
     'hill_coef': 4,       # Hill coefficient for admission gating (legacy)
     'theta_X': 0.5,       # relative infectiousness of X compartment
     'theta_H': 0.3,       # relative infectiousness of H (ward + ICU) compartment
-    'VE': 0.7             # vaccine efficacy (leaky model)
+    'VE': 0.7,            # vaccine efficacy (leaky model, legacy - use VACCINE_EFFICACY_PARAMS for three-factor)
+    'theta_vax': 0.5,     # relative infectiousness of vaccinated infected individuals (breakthrough)
+}
+
+
+# ============================================================================
+# SECTION 1B: THREE-FACTOR VACCINE MODEL PARAMETERS
+# ============================================================================
+# Three-factor vaccine model separates efficacy into:
+# - VE_infection: Efficacy against infection (reduces susceptibility/force of infection)
+# - VE_severe: Efficacy against severe disease (reduces progression I → X)
+# - VE_death: Efficacy against death (reduces mortality rates)
+#
+# This provides more realistic modeling of real-world vaccines where
+# protection against death often exceeds protection against infection.
+
+VACCINE_EFFICACY_PARAMS = {
+    # Three-factor efficacy parameters
+    'VE_infection': 0.6,    # 60% reduction in susceptibility to infection
+    'VE_severe': 0.8,       # 80% reduction in progression to severe disease
+    'VE_death': 0.9,        # 90% reduction in mortality
+    
+    # Vaccinated breakthrough infectiousness
+    'theta_vax': 0.5,       # breakthrough infections are 50% as infectious as unvaccinated
+}
+
+# Vaccination rate parameters for dynamic vaccination
+VACCINATION_RATE_PARAMS = {
+    'vaccination_rate': 0.0,          # daily rate of vaccination (fraction of S → S_vax)
+    'vaccination_rate_by_age': None,  # age-specific rates [young, middle, elderly] or None for uniform
+}
+
+# Vaccine immunity waning parameters
+VACCINE_WANING_PARAMS = {
+    'omega_vax': 0.0,                 # vaccine immunity waning rate (1/days), 0 = no waning
+    'omega_vax_by_age': None,         # age-specific waning [young, middle, elderly] or None for uniform
+    'waning_destination': 'S',        # 'S' = return to fully susceptible, 'S_vax' = partial protection
+}
+
+# Preset vaccine profiles for different vaccine types
+VACCINE_PROFILES = {
+    'mrna_original': {
+        'description': 'mRNA vaccine (Pfizer/Moderna) vs original strain',
+        'VE_infection': 0.80,
+        'VE_severe': 0.90,
+        'VE_death': 0.95,
+        'theta_vax': 0.3,
+        'omega_vax': 0.002,   # ~500 day waning
+    },
+    'mrna_omicron': {
+        'description': 'mRNA vaccine vs Omicron variant (immune escape)',
+        'VE_infection': 0.30,
+        'VE_severe': 0.70,
+        'VE_death': 0.85,
+        'theta_vax': 0.6,
+        'omega_vax': 0.004,   # ~250 day waning
+    },
+    'adenovirus': {
+        'description': 'Adenovirus vaccine (AZ/J&J)',
+        'VE_infection': 0.65,
+        'VE_severe': 0.85,
+        'VE_death': 0.90,
+        'theta_vax': 0.4,
+        'omega_vax': 0.003,   # ~333 day waning
+    },
+    'inactivated': {
+        'description': 'Inactivated virus vaccine (Sinovac/Sinopharm)',
+        'VE_infection': 0.50,
+        'VE_severe': 0.70,
+        'VE_death': 0.80,
+        'theta_vax': 0.5,
+        'omega_vax': 0.004,   # ~250 day waning
+    },
+    'influenza_typical': {
+        'description': 'Typical seasonal influenza vaccine',
+        'VE_infection': 0.40,
+        'VE_severe': 0.60,
+        'VE_death': 0.75,
+        'theta_vax': 0.6,
+        'omega_vax': 0.003,   # ~333 day waning
+    },
+    'ideal': {
+        'description': 'Ideal/sterilizing vaccine',
+        'VE_infection': 0.95,
+        'VE_severe': 0.99,
+        'VE_death': 0.99,
+        'theta_vax': 0.1,
+        'omega_vax': 0.0,     # no waning
+    },
+    'minimal': {
+        'description': 'Minimal/suboptimal vaccine',
+        'VE_infection': 0.30,
+        'VE_severe': 0.50,
+        'VE_death': 0.60,
+        'theta_vax': 0.7,
+        'omega_vax': 0.005,   # ~200 day waning
+    },
 }
 
 # Extended simulation durations for different study types
@@ -468,14 +564,24 @@ DEFAULT_INITIAL_CONDITIONS = {
     'R_single': 0,
     'D_single': 0,
     
-    # Age-structured model
+    # Age-structured model (unvaccinated compartments)
     'E_by_age': [0, 0, 0],
     'I_by_age': [10, 0, 0],      # seed in young (school outbreak)
     'X_by_age': [0, 0, 0],
     'H_ward_by_age': [0, 0, 0],
     'H_icu_by_age': [0, 0, 0],
     'R_by_age': [0, 0, 0],
-    'D_by_age': [0, 0, 0]
+    'D_by_age': [0, 0, 0],
+    
+    # Vaccinated compartments (Three-Factor Model)
+    'S_vax_by_age': [0, 0, 0],   # initially susceptible vaccinated
+    'E_vax_by_age': [0, 0, 0],   # exposed vaccinated (breakthrough)
+    'I_vax_by_age': [0, 0, 0],   # infectious vaccinated (breakthrough)
+    'X_vax_by_age': [0, 0, 0],   # severe vaccinated
+    'H_ward_vax_by_age': [0, 0, 0],  # ward vaccinated
+    'H_icu_vax_by_age': [0, 0, 0],   # ICU vaccinated
+    'R_vax_by_age': [0, 0, 0],   # recovered vaccinated
+    'D_vax_by_age': [0, 0, 0],   # dead vaccinated
 }
 
 # Alternative initial condition scenarios
@@ -1265,5 +1371,64 @@ def create_custom_scenario(
 
 AGE_POPS_DEFAULT = [3000, 5000, 2000]  # Original default (10,000 total)
 AGE_POPS_REGIONAL_DEFAULT = HEALTHCARE_SYSTEM_SUBURBAN['age_pops']
+
+
+# ============================================================================
+# SECTION 14: VACCINE PROFILE HELPERS
+# ============================================================================
+
+def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
+    """
+    Get vaccine efficacy parameters for a named vaccine profile.
+    
+    Args:
+        profile_name: Key from VACCINE_PROFILES (e.g., 'mrna_original', 'influenza_typical')
+        
+    Returns:
+        Dictionary containing VE_infection, VE_severe, VE_death, theta_vax, omega_vax
+        
+    Example:
+        profile = get_vaccine_profile('mrna_original')
+        results = simulate_master_hospital_model(
+            ...,
+            VE_infection=profile['VE_infection'],
+            VE_severe=profile['VE_severe'],
+            VE_death=profile['VE_death'],
+        )
+    """
+    if profile_name not in VACCINE_PROFILES:
+        available = list(VACCINE_PROFILES.keys())
+        raise ValueError(f"Unknown vaccine profile '{profile_name}'. Available: {available}")
+    
+    return deepcopy(VACCINE_PROFILES[profile_name])
+
+
+def list_vaccine_profiles() -> List[str]:
+    """Return list of available vaccine profile names."""
+    return list(VACCINE_PROFILES.keys())
+
+
+def describe_vaccine_profile(profile_name: str) -> str:
+    """Return detailed description of a vaccine profile."""
+    if profile_name not in VACCINE_PROFILES:
+        raise ValueError(f"Unknown vaccine profile: {profile_name}")
+    
+    p = VACCINE_PROFILES[profile_name]
+    omega_days = f"{1/p['omega_vax']:.0f}" if p['omega_vax'] > 0 else "∞"
+    
+    lines = [
+        f"=== {profile_name} ===",
+        f"Description: {p['description']}",
+        f"",
+        f"Three-Factor Efficacy:",
+        f"  VE_infection: {p['VE_infection']:.0%} (against infection)",
+        f"  VE_severe:    {p['VE_severe']:.0%} (against severe disease)",
+        f"  VE_death:     {p['VE_death']:.0%} (against death)",
+        f"",
+        f"Breakthrough Dynamics:",
+        f"  θ_vax: {p['theta_vax']:.0%} (relative infectiousness)",
+        f"  Immunity duration: ~{omega_days} days",
+    ]
+    return '\n'.join(lines)
 
 
