@@ -1,8 +1,9 @@
 """
-Master SIXHRD hospital model
+Master SEIXHRD hospital model
 
 This model includes:
-- Age-structured compartments (S, I, X, H_ward, H_icu, R, D)
+- Age-structured compartments (S, E, I, X, H_ward, H_icu, R, D)
+- Exposed (E) compartment for latent period between infection and infectiousness
 - Vaccination with age-specific coverage and efficacy
 - Infectiousness modifiers for compartments X and H
 - Separate ward and ICU capacity constraints with Hill function gating
@@ -54,6 +55,7 @@ def simulate_master_hospital_model(
         Baseline transmission rate (modified by seasonality and interventions).
     age_params : list of dict
         Age-specific parameters for each group. Each dict should contain:
+        - Latent period: 'alpha' (E → I rate, 1/latent_period)
         - Core rates: 'sigma', 'eta', 'eta_icu', 'gamma_I', 'mu_I', 'gamma_X', 'mu_X'
         - Ward/ICU: 'gamma_ward', 'mu_ward', 'gamma_icu', 'mu_icu'
         - Differential mortality: 'mu_X_untreated', 'mu_ward_denied_icu' (optional)
@@ -113,13 +115,13 @@ def simulate_master_hospital_model(
         - 'times': array of time points
         
         Compartments by age (lists of arrays, one per age group):
-        - 'S', 'I', 'X', 'R', 'D': standard compartments
+        - 'S', 'E', 'I', 'X', 'R', 'D': standard compartments
         - 'H_ward', 'H_icu': hospital compartments
         - 'H': combined ward + ICU (backward compatibility)
         
         Aggregated totals (arrays):
         - 'H_ward_total', 'H_icu_total', 'H_total': hospital occupancy
-        - 'I_total', 'X_total', 'D_total': infection/death totals
+        - 'E_total', 'I_total', 'X_total', 'D_total': infection/death totals
         
         Capacity metrics:
         - 'ward_overflow', 'icu_overflow': instantaneous overflow
@@ -146,13 +148,18 @@ def simulate_master_hospital_model(
     Notes
     -----
     Compartment flow for each age group:
-        S_a → I_a → X_a → H_ward_a → H_icu_a → R_a or D_a
-                ↓           ↓            ↓
-               R_a         R_a          R_a
-                            ↓            ↓
-                           D_a          D_a
+        S_a → E_a → I_a → X_a → H_ward_a → H_icu_a → R_a or D_a
+                     ↓           ↓            ↓
+                    R_a         R_a          R_a
+                                 ↓            ↓
+                                D_a          D_a
     
     With waning immunity: R_a → S_a
+    
+    Latent period:
+        E_a represents exposed individuals in the latent period who are
+        infected but not yet infectious. Transition rate alpha controls
+        the duration of the latent period (mean = 1/alpha days).
     
     Time-varying transmission:
         beta(t) = beta_base * seasonal_factor(t) * policy_multiplier(t)
@@ -252,12 +259,13 @@ def simulate_master_hospital_model(
     }
     
     I = _coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
+    E = _coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
     X = _coerce_initial_vector(ic_defaults, 'X_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['X_by_age'])
     H_ward = _coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
     H_icu = _coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
     R = _coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
     D = _coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
-    S = [max(0, age_pops[a] - I[a] - X[a] - H_ward[a] - H_icu[a] - R[a] - D[a]) for a in range(n_ages)]
+    S = [max(0, age_pops[a] - E[a] - I[a] - X[a] - H_ward[a] - H_icu[a] - R[a] - D[a]) for a in range(n_ages)]
     
     # Differential mortality tracking
     D_treated = [0.0] * n_ages
@@ -270,6 +278,7 @@ def simulate_master_hospital_model(
     
     # Per-age compartment histories
     S_history = [[] for _ in range(n_ages)]
+    E_history = [[] for _ in range(n_ages)]
     I_history = [[] for _ in range(n_ages)]
     X_history = [[] for _ in range(n_ages)]
     H_ward_history = [[] for _ in range(n_ages)]
@@ -283,6 +292,7 @@ def simulate_master_hospital_model(
     H_ward_total_history = []
     H_icu_total_history = []
     H_total_history = []
+    E_total_history = []
     I_total_history = []
     X_total_history = []
     D_total_history = []
@@ -325,6 +335,7 @@ def simulate_master_hospital_model(
         # Store current state
         for a in range(n_ages):
             S_history[a].append(S[a])
+            E_history[a].append(E[a])
             I_history[a].append(I[a])
             X_history[a].append(X[a])
             H_ward_history[a].append(H_ward[a])
@@ -338,6 +349,7 @@ def simulate_master_hospital_model(
         H_ward_total = sum(H_ward)
         H_icu_total = sum(H_icu)
         H_total = H_ward_total + H_icu_total
+        E_total = sum(E)
         I_total = sum(I)
         X_total = sum(X)
         D_total = sum(D)
@@ -345,6 +357,7 @@ def simulate_master_hospital_model(
         H_ward_total_history.append(H_ward_total)
         H_icu_total_history.append(H_icu_total)
         H_total_history.append(H_total)
+        E_total_history.append(E_total)
         I_total_history.append(I_total)
         X_total_history.append(X_total)
         D_total_history.append(D_total)
@@ -388,7 +401,7 @@ def simulate_master_hospital_model(
         for a in range(n_ages):
             for b in range(n_ages):
                 H_contrib = H_ward[b] + H_icu[b]
-                live_pop_b = S[b] + I[b] + X[b] + H_contrib + R[b]
+                live_pop_b = S[b] + E[b] + I[b] + X[b] + H_contrib + R[b]
                 if live_pop_b > 0:
                     lambda_foi[a] += (eff_beta[a] * contact_matrix[a][b] *
                                      (I[b] + theta_X * X[b] + theta_H * H_contrib) / live_pop_b)
@@ -396,7 +409,11 @@ def simulate_master_hospital_model(
         # ========================================
         # Transitions
         # ========================================
-        new_inf = [lambda_foi[a] * S[a] for a in range(n_ages)]
+        # S -> E: new exposures (latent period begins)
+        new_exposed = [lambda_foi[a] * S[a] for a in range(n_ages)]
+        
+        # E -> I: becoming infectious (latent period ends)
+        becoming_infectious = [age_params[a].get('alpha', 0.2) * E[a] for a in range(n_ages)]
         
         # Ward admissions from X
         admit_ward = [age_params[a]['eta'] * X[a] * g_ward for a in range(n_ages)]
@@ -414,15 +431,21 @@ def simulate_master_hospital_model(
         
         # Track flows if requested
         if track_compartment_flows:
-            new_infections_history.append(list(new_inf))
+            new_infections_history.append(list(becoming_infectious))
             ward_admissions_history.append(list(admit_ward))
             icu_admissions_history.append(list(admit_icu))
         
         # ========================================
         # ODEs with Differential Mortality
         # ========================================
-        dS = [-new_inf[a] + waning_flow[a] for a in range(n_ages)]
-        dI = [new_inf[a] - (age_params[a]['gamma_I'] + age_params[a]['mu_I'] +
+        # dS/dt = -lambda*S + omega*R  (S -> E via exposure, R -> S via waning)
+        dS = [-new_exposed[a] + waning_flow[a] for a in range(n_ages)]
+        
+        # dE/dt = lambda*S - alpha*E  (E receives from S, loses to I)
+        dE = [new_exposed[a] - becoming_infectious[a] for a in range(n_ages)]
+        
+        # dI/dt = alpha*E - (gamma_I + mu_I + sigma)*I  (I receives from E)
+        dI = [becoming_infectious[a] - (age_params[a]['gamma_I'] + age_params[a]['mu_I'] +
               age_params[a]['sigma']) * I[a] for a in range(n_ages)]
         
         dH_ward = []
@@ -509,6 +532,7 @@ def simulate_master_hospital_model(
         # ========================================
         for a in range(n_ages):
             S[a] = max(0, S[a] + dS[a] * dt)
+            E[a] = max(0, E[a] + dE[a] * dt)
             I[a] = max(0, I[a] + dI[a] * dt)
             X[a] = max(0, X[a] + dX[a] * dt)
             H_ward[a] = max(0, H_ward[a] + dH_ward[a] * dt)
@@ -541,6 +565,7 @@ def simulate_master_hospital_model(
         
         # Per-age compartments
         'S': S_history,
+        'E': E_history,
         'I': I_history,
         'X': X_history,
         'H_ward': H_ward_history,
@@ -554,6 +579,7 @@ def simulate_master_hospital_model(
         'H_ward_total': H_ward_total_history,
         'H_icu_total': H_icu_total_history,
         'H_total': H_total_history,
+        'E_total': E_total_history,
         'I_total': I_total_history,
         'X_total': X_total_history,
         'D_total': D_total_history,
@@ -617,7 +643,6 @@ def simulate_master_hospital_model(
 
 # End of master_hospital_model.py
 # More features that I want to add later:
-# - Vaccination compartments (S_vax, I_vax, etc.)
 # - Booster doses and waning of vaccine-induced immunity
 # - Variants with different transmissibility and severity
 # - Integration with real-world data for parameter fitting
@@ -625,7 +650,6 @@ def simulate_master_hospital_model(
 # - Sensitivity analysis tools
 # - Export results to common data formats (CSV, JSON, etc.)
 # - User-friendly interface for setting up simulations
-# - Documentation and examples for all features
 # - Unit tests for model validation
 # - Performance optimizations for large populations
 # - Integration with GIS data for spatial modeling

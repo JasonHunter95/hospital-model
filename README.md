@@ -1,6 +1,6 @@
-# Hospital Capacity SIXHRD Epidemic Model
+# Hospital Capacity SEIXHRD Epidemic Model
 
-A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
+A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -9,7 +9,7 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
 
 - [Overview](#overview)
 - [Model Description](#model-description)
-  - [Basic SIXHRD Model](#basic-sixhrd-model)
+  - [Basic SEIXHRD Model](#basic-seixhrd-model)
   - [Age-Structured Extension](#age-structured-extension)
   - [Ward/ICU Separation](#wardicu-separation)
   - [Master Model](#master-model)
@@ -38,13 +38,14 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
 
 ## Overview
 
-This project implements an extended **SIXHRD compartmental model** designed to simulate epidemic dynamics while accounting for real-world healthcare system constraints. Unlike traditional SIR models, this implementation:
+This project implements an extended **SEIXHRD compartmental model** designed to simulate epidemic dynamics while accounting for real-world healthcare system constraints. Unlike traditional SIR models, this implementation:
 
-1. **Models hospital capacity constraints** using smooth Hill function gating
-2. **Separates ward and ICU capacity** with distinct mortality implications
-3. **Supports age-structured populations** with heterogeneous contact patterns
-4. **Includes time-varying transmission** (seasonality, policy interventions, waning immunity)
-5. **Tracks unmet care needs** and overflow burden for policy analysis
+1. **Includes an Exposed (E) compartment** for realistic latent period dynamics
+2. **Models hospital capacity constraints** using smooth Hill function gating
+3. **Separates ward and ICU capacity** with distinct mortality implications
+4. **Supports age-structured populations** with heterogeneous contact patterns
+5. **Includes time-varying transmission** (seasonality, policy interventions, waning immunity)
+6. **Tracks unmet care needs** and overflow burden for policy analysis
 
 The model is designed for academic research and educational purposes to explore:
 
@@ -57,14 +58,15 @@ The model is designed for academic research and educational purposes to explore:
 
 ## Model Description
 
-### Basic SIXHRD Model
+### Basic SEIXHRD Model
 
-The core model divides the population into six compartments:
+The core model divides the population into seven compartments:
 
 | Compartment | Description |
 |-------------|-------------|
 | **S** | Susceptible - individuals who can become infected |
-| **I** | Infected - mild or early-stage infections |
+| **E** | Exposed - infected but in latent period (not yet infectious) |
+| **I** | Infected - mild or early-stage infections (infectious) |
 | **X** | Severe cases - requiring hospitalization |
 | **H** | Hospitalized - admitted patients receiving care |
 | **R** | Recovered - immune individuals |
@@ -73,11 +75,13 @@ The core model divides the population into six compartments:
 **Flow diagram:**
 
 ```text
-S → I → X → H → R
-        ↓   ↓   ↑
-        D   D   ↑
-            ↑___↑
+S → E → I → X → H → R
+            ↓   ↓   ↑
+            D   D   ↑
+                ↑___↑
 ```
+
+The **Exposed (E) compartment** represents the latent period where individuals are infected but not yet infectious. This is controlled by the parameter $\alpha$ (E→I rate), where the mean latent period is $1/\alpha$ days.
 
 ### Age-Structured Extension
 
@@ -98,7 +102,7 @@ Default age groups:
 The extended model splits hospitalization into two stages:
 
 ```text
-S → I → X → H_ward → H_icu → R or D
+S → E → I → X → H_ward → H_icu → R or D
 ```
 
 | Compartment | Description |
@@ -137,7 +141,8 @@ simulate_master_hospital_model(
 
 **Features combined in the Master Model:**
 
-- ✅ Age-structured compartments (S, I, X, H_ward, H_icu, R, D)
+- ✅ Age-structured compartments (S, E, I, X, H_ward, H_icu, R, D)
+- ✅ Exposed (E) compartment with age-specific latent periods
 - ✅ Separate ward and ICU with independent Hill gating
 - ✅ Differential mortality tracking (D_treated vs D_untreated)
 - ✅ Seasonal forcing of transmission
@@ -216,11 +221,13 @@ The Hill coefficient $n$ controls how sharply admissions decline as capacity is 
 
 ### Complete ODE System
 
-#### Basic SIXHRD Hospital Model
+#### Basic SEIXHRD Hospital Model
 
 $$\frac{dS}{dt} = -\lambda S$$
 
-$$\frac{dI}{dt} = \lambda S - (\gamma_I + \mu_I + \sigma) I$$
+$$\frac{dE}{dt} = \lambda S - \alpha E$$
+
+$$\frac{dI}{dt} = \alpha E - (\gamma_I + \mu_I + \sigma) I$$
 
 $$\frac{dX}{dt} = \sigma I - (\gamma_X + \mu_X) X - \eta \cdot X \cdot g(H)$$
 
@@ -230,6 +237,8 @@ $$\frac{dR}{dt} = \gamma_I I + \gamma_X X + \gamma_H H$$
 
 $$\frac{dD}{dt} = \mu_I I + \mu_X X + \mu_H H$$
 
+Where $\alpha$ is the rate of progression from Exposed to Infectious (1/latent period).
+
 #### Master Model with Ward/ICU Split
 
 For each age group $a$:
@@ -237,8 +246,11 @@ For each age group $a$:
 **Susceptible:**
 $$\frac{dS_a}{dt} = -\lambda_a S_a + \omega_a R_a$$
 
+**Exposed (latent period):**
+$$\frac{dE_a}{dt} = \lambda_a S_a - \alpha_a E_a$$
+
 **Infected (mild):**
-$$\frac{dI_a}{dt} = \lambda_a S_a - (\gamma_{I,a} + \mu_{I,a} + \sigma_a) I_a$$
+$$\frac{dI_a}{dt} = \alpha_a E_a - (\gamma_{I,a} + \mu_{I,a} + \sigma_a) I_a$$
 
 **Severe (needs hospitalization):**
 $$\frac{dX_a}{dt} = \sigma_a I_a - (\gamma_{X,a} + \mu_{X,\text{eff}}) X_a - \text{admit}_{\text{ward},a}$$
@@ -519,7 +531,7 @@ print(f"Peak ICU: {max(results['H_icu_total']):.0f}")
 
 | Field | Description |
 |-------|-------------|
-| `S`, `I`, `X`, `R`, `D` | Compartments by age (list of arrays) |
+| `S`, `E`, `I`, `X`, `R`, `D` | Compartments by age (list of arrays) |
 | `H_ward`, `H_icu` | Hospital compartments by age |
 | `H_ward_total`, `H_icu_total` | Aggregated hospital occupancy |
 | `D_treated`, `D_untreated` | Deaths by care status |

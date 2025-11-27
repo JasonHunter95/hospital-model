@@ -91,11 +91,13 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 
 DEFAULT_INITIAL_CONDITIONS = {
     'I_single': 10,
+    'E_single': 0,
     'X_single': 0,
     'H_single': 0,
     'R_single': 0,
     'D_single': 0,
     # Age-structured defaults (length should match number of age groups)
+    'E_by_age': [0, 0, 0],
     'I_by_age': [10, 0, 0],
     'X_by_age': [0, 0, 0],
     'H_ward_by_age': [0, 0, 0],
@@ -164,6 +166,7 @@ AGE_POPS_REGIONAL_DEFAULT = [60000, 100000, 40000]  # total population: 200,000
 
 # young (0-19): very low severity
 YOUNG_PARAMS_EMPIRICAL = {
+    'alpha': 0.2,        # E → I rate (1/latent period, ~5 days)
     'sigma': 0.02,       # Only 2% progress to severe (vs 10% before)
     'eta': 0.05,         # 5% of severe cases need ward (vs 20%)
     'eta_icu': 0.02,     # 2% of ward patients need ICU (rare in young)
@@ -184,6 +187,7 @@ YOUNG_PARAMS_EMPIRICAL = {
 
 # middle (20-64): moderate severity - subdivide if needed (20-44, 45-64)
 MIDDLE_PARAMS_EMPIRICAL = {
+    'alpha': 0.2,        # E → I rate (1/latent period, ~5 days)
     'sigma': 0.08,       # 8% progress to severe (vs 20%)
     'eta': 0.15,         # 15% of severe need ward admission
     'eta_icu': 0.10,     # 10% of ward patients need ICU
@@ -204,6 +208,7 @@ MIDDLE_PARAMS_EMPIRICAL = {
 
 # elderly (65+): high severity - this is where most deaths occur
 ELDERLY_PARAMS_EMPIRICAL = {
+    'alpha': 0.18,       # E → I rate (1/latent period, ~5.5 days - slightly longer for elderly)
     'sigma': 0.15,       # 15% progress to severe (vs 30%)
     'eta': 0.35,         # 35% of severe need ward admission
     'eta_icu': 0.25,     # 25% of ward patients need ICU
@@ -226,6 +231,7 @@ AGE_PARAMS_EMPIRICAL = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY
 
 # young (0-19): low severity, low mortality
 YOUNG_PARAMS = {
+    'alpha': 0.2,        # E → I rate (1/latent period, ~5 days)
     'sigma': 0.1,        # progression rate to severe cases
     'eta': 0.2,          # hospitalization need rate (ward)
     'eta_icu': 0.05,     # ICU need rate (fraction of ward patients needing ICU)
@@ -246,6 +252,7 @@ YOUNG_PARAMS = {
 
 # middle (20-64): moderate severity and mortality
 MIDDLE_PARAMS = {
+    'alpha': 0.2,        # E → I rate (1/latent period, ~5 days)
     'sigma': 0.2,
     'eta': 0.3,          # hospitalization need rate (ward)
     'eta_icu': 0.15,     # ICU need rate (fraction of ward patients)
@@ -266,6 +273,7 @@ MIDDLE_PARAMS = {
 
 # elderly (65+): high severity, high mortality
 ELDERLY_PARAMS = {
+    'alpha': 0.18,       # E → I rate (1/latent period, ~5.5 days - slightly longer for elderly)
     'sigma': 0.3,        # higher progression to severe
     'eta': 0.5,          # higher hospitalization rate (ward)
     'eta_icu': 0.3,      # higher ICU need rate
