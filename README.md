@@ -21,6 +21,7 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
   - [Complete ODE System](#complete-ode-system)
   - [Differential Mortality](#differential-mortality-equations)
   - [Time-Varying Transmission](#time-varying-transmission-equations)
+  - [Numerical Integration](#numerical-integration)
   - [Vaccination Dynamics](#vaccination-dynamics-equations)
 - [Installation](#installation)
 - [Testing](#testing)
@@ -417,11 +418,94 @@ Age-specific waning rates allow modeling of differential immune durability acros
 
 ### Numerical Integration
 
-The model uses the **Euler method** with configurable time step (default: $\Delta t = 0.1$ days):
+The master model uses **adaptive ODE solvers** from `scipy.integrate` for improved numerical stability and accuracy:
 
-$$X(t + \Delta t) = X(t) + \frac{dX}{dt} \cdot \Delta t$$
+#### Default Solver: LSODA (via `odeint`)
 
-All compartments are constrained to be non-negative after each update.
+The default solver is `scipy.integrate.odeint`, which uses the **LSODA** algorithm that automatically switches between stiff (BDF) and non-stiff (Adams) methods:
+
+```python
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_pops=[3000, 5000, 2000],
+    solver='odeint',           # Default
+    rtol=1e-6,                 # Relative tolerance
+    atol=1e-8,                 # Absolute tolerance
+    ...
+)
+```
+
+#### Alternative Solver: `solve_ivp`
+
+For more control over the integration method, use `scipy.integrate.solve_ivp`:
+
+```python
+results = simulate_master_hospital_model(
+    beta_base=0.3,
+    age_pops=[3000, 5000, 2000],
+    solver='solve_ivp',
+    solver_method='BDF',       # Good for stiff systems
+    rtol=1e-6,
+    atol=1e-8,
+    ...
+)
+```
+
+Available `solver_method` options:
+- `'LSODA'` (default) - Automatic stiff/non-stiff switching
+- `'BDF'` - Backward Differentiation Formula for stiff problems
+- `'Radau'` - Implicit Runge-Kutta for stiff problems
+- `'RK45'` - Explicit Runge-Kutta for non-stiff problems
+- `'RK23'` - Lower-order explicit Runge-Kutta
+- `'DOP853'` - High-order explicit Runge-Kutta
+
+#### Handling Discontinuities with `tcrit`
+
+When policy interventions are specified, the solver uses **critical time points** (`tcrit` for `odeint`, `t_eval` dense output for `solve_ivp`) to accurately capture discontinuities in the transmission rate:
+
+```python
+interventions = [
+    {'start_day': 30, 'end_day': 75, 'transmission_reduction': 0.5},
+    {'start_day': 150, 'end_day': 200, 'transmission_reduction': 0.3}
+]
+
+# The solver will step exactly at days 30, 75, 150, 200
+results = simulate_master_hospital_model(
+    interventions=interventions,
+    ...
+)
+```
+
+#### Post-Integration Clipping
+
+To handle potential numerical artifacts, the solver applies post-integration clipping with a configurable warning threshold:
+
+```python
+results = simulate_master_hospital_model(
+    clip_warning_threshold=-1e-6,  # Warn if values < this
+    ...
+)
+```
+
+If any compartment value falls below the threshold, a warning is issued. All compartment values are then clipped to `[0, ∞)` to ensure non-negativity.
+
+#### State Vector Packing
+
+The 16 compartments × N age groups are packed into a single 1D state vector:
+
+```python
+# State order: S, E, I, X, H_ward, H_icu, R, D, S_vax, E_vax, I_vax, X_vax, H_ward_vax, H_icu_vax, R_vax, D_vax
+# For 3 age groups: [S_0, S_1, S_2, E_0, E_1, E_2, ..., D_vax_0, D_vax_1, D_vax_2]
+```
+
+This enables efficient vectorized computation of the force of infection:
+
+$$\lambda = \beta_{\text{eff}}(t) \cdot C \cdot \frac{\mathbf{I}_{\text{infectious}}}{\mathbf{N}}$$
+
+Where:
+- $C$ is the contact matrix
+- $\mathbf{I}_{\text{infectious}}$ includes contributions from I, X, H compartments (both vaccinated and unvaccinated)
+- The matrix multiplication is fully vectorized using NumPy
 
 ### Vaccination Dynamics Equations
 

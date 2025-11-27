@@ -18,11 +18,429 @@ This model includes:
 - Seasonal forcing of transmission
 - Policy interventions (lockdowns/relaxations)
 - Waning natural immunity
+
+Numerical Integration:
+- Uses scipy.integrate.odeint (LSODA) by default for improved numerical stability
+- Supports scipy.integrate.solve_ivp with configurable methods (RK45, BDF, Radau, etc.)
+- Uses tcrit parameter to handle intervention discontinuities accurately
+- Vectorized force of infection calculation using numpy matrix operations
+- Post-integration clipping with warning threshold for non-negativity enforcement
 """
 
+import warnings
+import numpy as np
+from scipy.integrate import odeint, solve_ivp
 import config
 from hospital_models import hill_gate, _validate_age_structured_inputs, _coerce_initial_vector
 from time_varying_helpers import seasonal_forcing, policy_multiplier
+
+
+# ============================================================================
+# STATE VECTOR PACKING/UNPACKING
+# ============================================================================
+# Order of compartments in the flattened state vector.
+# For n_ages age groups, the state vector has 16 * n_ages elements.
+# Layout: [S_0..S_{n-1}, E_0..E_{n-1}, ..., D_vax_0..D_vax_{n-1}]
+
+STATE_ORDER = [
+    'S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D',
+    'S_vax', 'E_vax', 'I_vax', 'X_vax', 'H_ward_vax', 'H_icu_vax', 'R_vax', 'D_vax'
+]
+NUM_COMPARTMENTS = len(STATE_ORDER)  # 16
+
+# Additional tracked variables (differential mortality) - these are integrated
+# separately as part of the state vector for accumulation
+TRACKED_ORDER = ['D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated', 'cum_breakthrough']
+NUM_TRACKED = len(TRACKED_ORDER)  # 5
+
+
+def _pack_state(compartments, n_ages):
+    """
+    Pack compartment dictionaries into a flat 1D numpy array for ODE solvers.
+    
+    Parameters
+    ----------
+    compartments : dict
+        Dictionary mapping compartment names to lists of values per age group.
+        Keys should match STATE_ORDER and TRACKED_ORDER.
+    n_ages : int
+        Number of age groups.
+    
+    Returns
+    -------
+    np.ndarray
+        Flattened state vector of shape ((NUM_COMPARTMENTS + NUM_TRACKED) * n_ages,)
+    
+    Notes
+    -----
+    State vector layout:
+    [S_0, S_1, ..., S_{n-1}, E_0, E_1, ..., D_vax_{n-1}, 
+     D_treated_0, ..., cum_breakthrough_{n-1}]
+    """
+    y = np.zeros((NUM_COMPARTMENTS + NUM_TRACKED) * n_ages)
+    
+    # Pack main compartments
+    for i, name in enumerate(STATE_ORDER):
+        start = i * n_ages
+        y[start:start + n_ages] = compartments[name]
+    
+    # Pack tracked variables
+    base = NUM_COMPARTMENTS * n_ages
+    for i, name in enumerate(TRACKED_ORDER):
+        start = base + i * n_ages
+        y[start:start + n_ages] = compartments[name]
+    
+    return y
+
+
+def _unpack_state(y, n_ages):
+    """
+    Unpack flat state vector into compartment dictionary.
+    
+    Parameters
+    ----------
+    y : np.ndarray
+        Flattened state vector of shape ((NUM_COMPARTMENTS + NUM_TRACKED) * n_ages,)
+    n_ages : int
+        Number of age groups.
+    
+    Returns
+    -------
+    dict
+        Dictionary mapping compartment names to numpy arrays of values per age group.
+    """
+    compartments = {}
+    
+    # Unpack main compartments
+    for i, name in enumerate(STATE_ORDER):
+        start = i * n_ages
+        compartments[name] = y[start:start + n_ages]
+    
+    # Unpack tracked variables
+    base = NUM_COMPARTMENTS * n_ages
+    for i, name in enumerate(TRACKED_ORDER):
+        start = base + i * n_ages
+        compartments[name] = y[start:start + n_ages]
+    
+    return compartments
+
+
+def _hill_gate_vectorized(occupancy, capacity, hill_coef):
+    """
+    Vectorized Hill function gating.
+    
+    Parameters
+    ----------
+    occupancy : float
+        Current total occupancy.
+    capacity : float
+        Maximum capacity.
+    hill_coef : float
+        Hill coefficient.
+    
+    Returns
+    -------
+    float
+        Gating factor between 0 and 1.
+    """
+    if capacity <= 0:
+        return 0.0
+    return 1.0 / (1.0 + (occupancy / capacity) ** hill_coef)
+
+
+# ============================================================================
+# DERIVATIVE FUNCTION FOR ODE SOLVERS
+# ============================================================================
+
+def _master_deriv(y, t, params):
+    """
+    Compute derivatives for the master SEIXHRD model with vaccination.
+    
+    This function computes dy/dt for all compartments using vectorized numpy
+    operations for the force of infection calculation.
+    
+    Parameters
+    ----------
+    y : np.ndarray
+        Current state vector (flattened compartments).
+    t : float
+        Current time.
+    params : dict
+        Model parameters including:
+        - n_ages: number of age groups
+        - beta_base: baseline transmission rate
+        - contact_matrix: age-structured contact matrix
+        - age_params: list of age-specific parameter dicts
+        - K_ward, K_icu: ward and ICU capacity
+        - n_ward, n_icu: Hill coefficients
+        - VE_infection, VE_severe, VE_death: vaccine efficacies
+        - theta_X, theta_H, theta_vax: infectiousness modifiers
+        - omega: natural immunity waning rates
+        - omega_vax: vaccine immunity waning rates
+        - vax_waning_destination: 'S' or 'S_vax'
+        - vaccination_rate: vaccination rates by age
+        - seasonal_params: seasonal forcing parameters
+        - interventions: list of intervention dicts
+    
+    Returns
+    -------
+    np.ndarray
+        Derivative vector dy/dt.
+    """
+    n_ages = params['n_ages']
+    
+    # Unpack state
+    state = _unpack_state(y, n_ages)
+    S = state['S']
+    E = state['E']
+    I = state['I']
+    X = state['X']
+    H_ward = state['H_ward']
+    H_icu = state['H_icu']
+    R = state['R']
+    D = state['D']
+    S_vax = state['S_vax']
+    E_vax = state['E_vax']
+    I_vax = state['I_vax']
+    X_vax = state['X_vax']
+    H_ward_vax = state['H_ward_vax']
+    H_icu_vax = state['H_icu_vax']
+    R_vax = state['R_vax']
+    D_vax = state['D_vax']
+    # Tracked accumulators (will have their rates computed)
+    # D_treated, D_untreated, D_vax_treated, D_vax_untreated, cum_breakthrough
+    
+    # Extract parameters
+    beta_base = params['beta_base']
+    contact_matrix = params['contact_matrix']
+    age_params = params['age_params']
+    K_ward = params['K_ward']
+    K_icu = params['K_icu']
+    n_ward = params['n_ward']
+    n_icu = params['n_icu']
+    VE_infection = params['VE_infection']
+    VE_severe = params['VE_severe']
+    VE_death = params['VE_death']
+    theta_X = params['theta_X']
+    theta_H = params['theta_H']
+    theta_vax = params['theta_vax']
+    omega = params['omega']
+    omega_vax = params['omega_vax']
+    vax_waning_destination = params['vax_waning_destination']
+    vaccination_rate = params['vaccination_rate']
+    seasonal_params = params['seasonal_params']
+    interventions = params['interventions']
+    dm_params = params['dm_params']
+    
+    # ========================================
+    # Time-Varying Transmission
+    # ========================================
+    seasonal_factor = seasonal_forcing(
+        t, 1.0,
+        amplitude=seasonal_params.get('amplitude', 0.0),
+        period=seasonal_params.get('period', 365),
+        peak_day=seasonal_params.get('peak_day', 0)
+    )
+    policy_mult = policy_multiplier(t, interventions)
+    beta_t = beta_base * seasonal_factor * policy_mult
+    
+    # ========================================
+    # Capacity Gating
+    # ========================================
+    H_ward_total = np.sum(H_ward) + np.sum(H_ward_vax)
+    H_icu_total = np.sum(H_icu) + np.sum(H_icu_vax)
+    g_ward = _hill_gate_vectorized(H_ward_total, K_ward, n_ward)
+    g_icu = _hill_gate_vectorized(H_icu_total, K_icu, n_icu)
+    
+    # ========================================
+    # Force of Infection (Vectorized)
+    # ========================================
+    # Live population per age group (exclude dead)
+    live_pop = (S + E + I + X + H_ward + H_icu + R +
+                S_vax + E_vax + I_vax + X_vax + H_ward_vax + H_icu_vax + R_vax)
+    
+    # Avoid division by zero
+    live_pop_safe = np.maximum(live_pop, 1e-10)
+    
+    # Infectious contributions (unvaccinated and vaccinated)
+    H_contrib = H_ward + H_icu + H_ward_vax + H_icu_vax
+    infectious_unvax = I + theta_X * X
+    infectious_vax = theta_vax * (I_vax + theta_X * X_vax)
+    
+    # Total infectious proportion per age group
+    infectious_fraction = (infectious_unvax + infectious_vax + theta_H * H_contrib) / live_pop_safe
+    
+    # Vectorized FOI: lambda_a = beta_t * sum_b(C_ab * infectious_fraction_b)
+    # contact_matrix[a,b] = contacts from age a to age b
+    lambda_foi = beta_t * (contact_matrix @ infectious_fraction)
+    
+    # Force of infection for vaccinated (reduced by VE_infection)
+    lambda_foi_vax = (1 - VE_infection) * lambda_foi
+    
+    # ========================================
+    # Extract Age-Specific Parameters as Arrays
+    # ========================================
+    alpha = np.array([ap.get('alpha', 0.2) for ap in age_params])
+    sigma = np.array([ap['sigma'] for ap in age_params])
+    eta = np.array([ap['eta'] for ap in age_params])
+    eta_icu = np.array([ap.get('eta_icu', 0.1) for ap in age_params])
+    gamma_I = np.array([ap['gamma_I'] for ap in age_params])
+    mu_I = np.array([ap['mu_I'] for ap in age_params])
+    gamma_X = np.array([ap['gamma_X'] for ap in age_params])
+    mu_X = np.array([ap['mu_X'] for ap in age_params])
+    
+    # Ward/ICU parameters with fallbacks
+    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
+    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
+    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
+    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
+    
+    # Differential mortality parameters
+    age_keys = ['young', 'middle', 'elderly']
+    mu_X_untreated = np.zeros(n_ages)
+    mu_ward_denied = np.zeros(n_ages)
+    for a in range(n_ages):
+        age_key = age_keys[a] if a < len(age_keys) else None
+        mu_X_mult = dm_params.get(
+            f'mu_X_untreated_multiplier_{age_key}', dm_params['mu_X_untreated_multiplier']
+        ) if age_key else dm_params['mu_X_untreated_multiplier']
+        mu_ward_mult = dm_params.get(
+            f'mu_ward_denied_icu_multiplier_{age_key}', dm_params['mu_ward_denied_icu_multiplier']
+        ) if age_key else dm_params['mu_ward_denied_icu_multiplier']
+        mu_X_untreated[a] = age_params[a].get('mu_X_untreated', mu_X[a] * mu_X_mult)
+        mu_ward_denied[a] = age_params[a].get('mu_ward_denied_icu', mu_ward[a] * mu_ward_mult)
+    
+    # ========================================
+    # Transitions (Unvaccinated)
+    # ========================================
+    new_exposed = lambda_foi * S
+    becoming_infectious = alpha * E
+    admit_ward = eta * X * g_ward
+    need_icu = eta_icu * H_ward
+    admit_icu = need_icu * g_icu
+    waning_flow = omega * R
+    new_vaccinations = vaccination_rate * S
+    
+    # ========================================
+    # Transitions (Vaccinated)
+    # ========================================
+    new_exposed_vax = lambda_foi_vax * S_vax
+    becoming_infectious_vax = alpha * E_vax
+    sigma_vax = (1 - VE_severe) * sigma
+    admit_ward_vax = eta * X_vax * g_ward
+    need_icu_vax = eta_icu * H_ward_vax
+    admit_icu_vax = need_icu_vax * g_icu
+    waning_flow_vax = omega_vax * R_vax
+    
+    # ========================================
+    # Differential Mortality (Unvaccinated)
+    # ========================================
+    # Fraction of X denied ward admission
+    fraction_X_denied = np.where(X > 0, 1.0 - g_ward, 0.0)
+    effective_mu_X = mu_X * g_ward + mu_X_untreated * fraction_X_denied
+    
+    # Fraction of ward patients denied ICU
+    fraction_icu_denied = np.where((H_ward > 0) & (need_icu > 0), 1.0 - g_icu, 0.0)
+    effective_mu_ward = mu_ward + (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied
+    
+    # Death flows (unvaccinated)
+    deaths_I = mu_I * I
+    deaths_X_treated = mu_X * g_ward * X
+    deaths_X_untreated = mu_X_untreated * fraction_X_denied * X
+    deaths_ward_baseline = mu_ward * H_ward
+    deaths_ward_icu_denied = (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied * H_ward
+    deaths_icu = mu_icu * H_icu
+    
+    # ========================================
+    # Differential Mortality (Vaccinated)
+    # ========================================
+    mu_I_vax = (1 - VE_death) * mu_I
+    mu_X_vax = (1 - VE_death) * mu_X
+    mu_X_untreated_vax = (1 - VE_death) * mu_X_untreated
+    mu_ward_vax = (1 - VE_death) * mu_ward
+    mu_ward_denied_vax = (1 - VE_death) * mu_ward_denied
+    mu_icu_vax = (1 - VE_death) * mu_icu
+    
+    fraction_X_vax_denied = np.where(X_vax > 0, 1.0 - g_ward, 0.0)
+    effective_mu_X_vax = mu_X_vax * g_ward + mu_X_untreated_vax * fraction_X_vax_denied
+    
+    fraction_icu_vax_denied = np.where((H_ward_vax > 0) & (need_icu_vax > 0), 1.0 - g_icu, 0.0)
+    effective_mu_ward_vax = mu_ward_vax + (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied
+    
+    # Death flows (vaccinated)
+    deaths_I_vax = mu_I_vax * I_vax
+    deaths_X_treated_vax = mu_X_vax * g_ward * X_vax
+    deaths_X_untreated_vax = mu_X_untreated_vax * fraction_X_vax_denied * X_vax
+    deaths_ward_baseline_vax = mu_ward_vax * H_ward_vax
+    deaths_ward_icu_denied_vax = (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied * H_ward_vax
+    deaths_icu_vax = mu_icu_vax * H_icu_vax
+    
+    # ========================================
+    # Compartment Derivatives (Unvaccinated)
+    # ========================================
+    dS = -new_exposed + waning_flow - new_vaccinations
+    if vax_waning_destination == 'S':
+        dS = dS + waning_flow_vax
+    
+    dE = new_exposed - becoming_infectious
+    dI = becoming_infectious - (gamma_I + mu_I + sigma) * I
+    dX = sigma * I - (gamma_X + effective_mu_X) * X - admit_ward
+    dH_ward = admit_ward - (gamma_ward + effective_mu_ward) * H_ward - admit_icu
+    dH_icu = admit_icu - (gamma_icu + mu_icu) * H_icu
+    dR = gamma_I * I + gamma_X * X + gamma_ward * H_ward + gamma_icu * H_icu - waning_flow
+    
+    total_deaths = (deaths_I + deaths_X_treated + deaths_X_untreated +
+                    deaths_ward_baseline + deaths_ward_icu_denied + deaths_icu)
+    dD = total_deaths
+    
+    # ========================================
+    # Compartment Derivatives (Vaccinated)
+    # ========================================
+    dS_vax = new_vaccinations - new_exposed_vax
+    if vax_waning_destination == 'S_vax':
+        dS_vax = dS_vax + waning_flow_vax
+    
+    dE_vax = new_exposed_vax - becoming_infectious_vax
+    dI_vax = becoming_infectious_vax - (gamma_I + mu_I_vax + sigma_vax) * I_vax
+    dX_vax = sigma_vax * I_vax - (gamma_X + effective_mu_X_vax) * X_vax - admit_ward_vax
+    dH_ward_vax = admit_ward_vax - (gamma_ward + effective_mu_ward_vax) * H_ward_vax - admit_icu_vax
+    dH_icu_vax = admit_icu_vax - (gamma_icu + mu_icu_vax) * H_icu_vax
+    dR_vax = (gamma_I * I_vax + gamma_X * X_vax + gamma_ward * H_ward_vax + 
+              gamma_icu * H_icu_vax - waning_flow_vax)
+    
+    total_deaths_vax = (deaths_I_vax + deaths_X_treated_vax + deaths_X_untreated_vax +
+                        deaths_ward_baseline_vax + deaths_ward_icu_denied_vax + deaths_icu_vax)
+    dD_vax = total_deaths_vax
+    
+    # ========================================
+    # Tracked Variable Derivatives
+    # ========================================
+    dD_treated = deaths_I + deaths_X_treated + deaths_ward_baseline + deaths_icu
+    dD_untreated = deaths_X_untreated + deaths_ward_icu_denied
+    dD_vax_treated = deaths_I_vax + deaths_X_treated_vax + deaths_ward_baseline_vax + deaths_icu_vax
+    dD_vax_untreated = deaths_X_untreated_vax + deaths_ward_icu_denied_vax
+    d_cum_breakthrough = new_exposed_vax  # Rate of breakthrough infections
+    
+    # ========================================
+    # Pack Derivatives
+    # ========================================
+    derivs = {
+        'S': dS, 'E': dE, 'I': dI, 'X': dX, 'H_ward': dH_ward, 'H_icu': dH_icu, 'R': dR, 'D': dD,
+        'S_vax': dS_vax, 'E_vax': dE_vax, 'I_vax': dI_vax, 'X_vax': dX_vax,
+        'H_ward_vax': dH_ward_vax, 'H_icu_vax': dH_icu_vax, 'R_vax': dR_vax, 'D_vax': dD_vax,
+        'D_treated': dD_treated, 'D_untreated': dD_untreated,
+        'D_vax_treated': dD_vax_treated, 'D_vax_untreated': dD_vax_untreated,
+        'cum_breakthrough': d_cum_breakthrough
+    }
+    
+    return _pack_state(derivs, n_ages)
+
+
+def _master_deriv_solve_ivp(t, y, params):
+    """
+    Wrapper for _master_deriv with solve_ivp argument order (t, y).
+    """
+    return _master_deriv(y, t, params)
 
 
 def simulate_master_hospital_model(
@@ -60,7 +478,13 @@ def simulate_master_hospital_model(
     track_differential_mortality=True,
     track_compartment_flows=False,
     # Initial conditions
-    initial_conditions=None
+    initial_conditions=None,
+    # Solver options (new)
+    solver='odeint',
+    solver_method='LSODA',
+    rtol=1e-6,
+    atol=1e-9,
+    clip_warning_threshold=1e-6
 ):
     """
     Simulate the Master SEIXHRD hospital model with Three-Factor Vaccination.
@@ -427,9 +851,115 @@ def simulate_master_hospital_model(
     cum_breakthrough = [0.0] * n_ages
     
     # ========================================
-    # Storage Arrays
+    # Build ODE Parameters Dictionary
     # ========================================
-    times = []
+    ode_params = {
+        'n_ages': n_ages,
+        'beta_base': beta_base,
+        'contact_matrix': np.asarray(contact_matrix),
+        'age_params': age_params,
+        'K_ward': K_ward,
+        'K_icu': K_icu,
+        'n_ward': n_ward,
+        'n_icu': n_icu,
+        'VE_infection': VE_infection,
+        'VE_severe': VE_severe,
+        'VE_death': VE_death,
+        'theta_X': theta_X,
+        'theta_H': theta_H,
+        'theta_vax': theta_vax,
+        'omega': np.array(omega),
+        'omega_vax': np.array(omega_vax),
+        'vax_waning_destination': vax_waning_destination,
+        'vaccination_rate': np.array(vaccination_rate),
+        'seasonal_params': seasonal_params,
+        'interventions': interventions,
+        'dm_params': config.DIFFERENTIAL_MORTALITY_PARAMS,
+    }
+    
+    # ========================================
+    # Pack Initial State
+    # ========================================
+    initial_state = {
+        'S': np.array(S), 'E': np.array(E), 'I': np.array(I), 'X': np.array(X),
+        'H_ward': np.array(H_ward), 'H_icu': np.array(H_icu), 'R': np.array(R), 'D': np.array(D),
+        'S_vax': np.array(S_vax), 'E_vax': np.array(E_vax), 'I_vax': np.array(I_vax), 'X_vax': np.array(X_vax),
+        'H_ward_vax': np.array(H_ward_vax), 'H_icu_vax': np.array(H_icu_vax), 'R_vax': np.array(R_vax), 'D_vax': np.array(D_vax),
+        'D_treated': np.array(D_treated), 'D_untreated': np.array(D_untreated),
+        'D_vax_treated': np.array(D_vax_treated), 'D_vax_untreated': np.array(D_vax_untreated),
+        'cum_breakthrough': np.array(cum_breakthrough),
+    }
+    y0 = _pack_state(initial_state, n_ages)
+    
+    # ========================================
+    # Time Points for Integration
+    # ========================================
+    n_steps = int(Tmax / time_step) + 1
+    t_eval = np.linspace(0, Tmax, n_steps)
+    
+    # Build tcrit array for intervention discontinuities
+    tcrit_points = set()
+    for intervention in interventions:
+        tcrit_points.add(intervention.get('start_day', 0))
+        tcrit_points.add(intervention.get('end_day', Tmax))
+    tcrit = sorted([t for t in tcrit_points if 0 < t < Tmax])
+    
+    # ========================================
+    # Run ODE Solver
+    # ========================================
+    if solver == 'odeint':
+        # Use scipy.integrate.odeint (LSODA)
+        solution = odeint(
+            _master_deriv,
+            y0,
+            t_eval,
+            args=(ode_params,),
+            tcrit=tcrit if tcrit else None,
+            rtol=rtol,
+            atol=atol,
+            full_output=False
+        )
+    elif solver == 'solve_ivp':
+        # Use scipy.integrate.solve_ivp with configurable method
+        sol = solve_ivp(
+            _master_deriv_solve_ivp,
+            (0, Tmax),
+            y0,
+            method=solver_method,
+            t_eval=t_eval,
+            args=(ode_params,),
+            rtol=rtol,
+            atol=atol,
+            dense_output=False
+        )
+        if not sol.success:
+            warnings.warn(f"solve_ivp did not converge: {sol.message}")
+        solution = sol.y.T  # Transpose to match odeint output shape (n_times, n_states)
+    else:
+        raise ValueError(f"Unknown solver: {solver}. Use 'odeint' or 'solve_ivp'.")
+    
+    # ========================================
+    # Post-Integration Clipping and NaN Check
+    # ========================================
+    # Check for NaN/inf values
+    if np.any(np.isnan(solution)) or np.any(np.isinf(solution)):
+        warnings.warn("ODE solver produced NaN or Inf values. Results may be unreliable.")
+        solution = np.nan_to_num(solution, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # Clip negative values with warning threshold
+    min_val = np.min(solution)
+    if min_val < -clip_warning_threshold:
+        warnings.warn(
+            f"ODE solver produced significantly negative values (min={min_val:.2e}). "
+            f"Clipping to zero. Consider reducing time_step or using a stiffer solver method."
+        )
+    solution = np.clip(solution, 0, None)
+    
+    # ========================================
+    # Unpack Solution and Build History Arrays
+    # ========================================
+    times = list(t_eval)
+    n_times = len(times)
     
     # Per-age compartment histories (unvaccinated)
     S_history = [[] for _ in range(n_ages)]
@@ -455,7 +985,36 @@ def simulate_master_hospital_model(
     D_vax_treated_history = [[] for _ in range(n_ages)]
     D_vax_untreated_history = [[] for _ in range(n_ages)]
     
-    # Aggregated histories (unvaccinated)
+    # Extract per-age histories from solution
+    for t_idx in range(n_times):
+        state = _unpack_state(solution[t_idx], n_ages)
+        for a in range(n_ages):
+            S_history[a].append(state['S'][a])
+            E_history[a].append(state['E'][a])
+            I_history[a].append(state['I'][a])
+            X_history[a].append(state['X'][a])
+            H_ward_history[a].append(state['H_ward'][a])
+            H_icu_history[a].append(state['H_icu'][a])
+            R_history[a].append(state['R'][a])
+            D_history[a].append(state['D'][a])
+            D_treated_history[a].append(state['D_treated'][a])
+            D_untreated_history[a].append(state['D_untreated'][a])
+            
+            S_vax_history[a].append(state['S_vax'][a])
+            E_vax_history[a].append(state['E_vax'][a])
+            I_vax_history[a].append(state['I_vax'][a])
+            X_vax_history[a].append(state['X_vax'][a])
+            H_ward_vax_history[a].append(state['H_ward_vax'][a])
+            H_icu_vax_history[a].append(state['H_icu_vax'][a])
+            R_vax_history[a].append(state['R_vax'][a])
+            D_vax_history[a].append(state['D_vax'][a])
+            D_vax_treated_history[a].append(state['D_vax_treated'][a])
+            D_vax_untreated_history[a].append(state['D_vax_untreated'][a])
+    
+    # ========================================
+    # Post-Processing: Compute Auxiliary Metrics
+    # ========================================
+    # Aggregated histories
     H_ward_total_history = []
     H_icu_total_history = []
     H_total_history = []
@@ -466,7 +1025,7 @@ def simulate_master_hospital_model(
     D_treated_total_history = []
     D_untreated_total_history = []
     
-    # Aggregated histories (vaccinated)
+    # Vaccinated aggregates
     H_ward_vax_total_history = []
     H_icu_vax_total_history = []
     H_vax_total_history = []
@@ -488,66 +1047,61 @@ def simulate_master_hospital_model(
     seasonal_factor_history = []
     policy_mult_history = []
     
-    # Flow tracking (optional) - always create lists so .append() is safe;
-    # they will only be included in final results if track_compartment_flows is True.
+    # Flow tracking (computed from state differences)
     new_infections_history = []
     ward_admissions_history = []
     icu_admissions_history = []
     new_vaccinations_history = []
     breakthrough_infections_daily_history = []
     
-    # Cumulative metrics
-    cum_ward_overflow = 0
-    cum_icu_overflow = 0
+    # Cumulative overflow (computed via trapezoidal integration)
+    cum_ward_overflow = 0.0
+    cum_icu_overflow = 0.0
     cum_unmet_ward = [0.0] * n_ages
     cum_unmet_icu = [0.0] * n_ages
     
-    # ========================================
-    # Main Simulation Loop
-    # ========================================
-    t = 0
-    while t <= Tmax:
-        times.append(t)
+    # Iterate through solution to compute auxiliary metrics
+    for t_idx in range(n_times):
+        t = times[t_idx]
+        state = _unpack_state(solution[t_idx], n_ages)
         
-        # Store current state (unvaccinated)
-        for a in range(n_ages):
-            S_history[a].append(S[a])
-            E_history[a].append(E[a])
-            I_history[a].append(I[a])
-            X_history[a].append(X[a])
-            H_ward_history[a].append(H_ward[a])
-            H_icu_history[a].append(H_icu[a])
-            R_history[a].append(R[a])
-            D_history[a].append(D[a])
-            D_treated_history[a].append(D_treated[a])
-            D_untreated_history[a].append(D_untreated[a])
-            
-            # Store vaccinated compartments
-            S_vax_history[a].append(S_vax[a])
-            E_vax_history[a].append(E_vax[a])
-            I_vax_history[a].append(I_vax[a])
-            X_vax_history[a].append(X_vax[a])
-            H_ward_vax_history[a].append(H_ward_vax[a])
-            H_icu_vax_history[a].append(H_icu_vax[a])
-            R_vax_history[a].append(R_vax[a])
-            D_vax_history[a].append(D_vax[a])
-            D_vax_treated_history[a].append(D_vax_treated[a])
-            D_vax_untreated_history[a].append(D_vax_untreated[a])
+        # Extract compartments
+        S_t = state['S']
+        E_t = state['E']
+        I_t = state['I']
+        X_t = state['X']
+        H_ward_t = state['H_ward']
+        H_icu_t = state['H_icu']
+        R_t = state['R']
+        D_t = state['D']
+        S_vax_t = state['S_vax']
+        E_vax_t = state['E_vax']
+        I_vax_t = state['I_vax']
+        X_vax_t = state['X_vax']
+        H_ward_vax_t = state['H_ward_vax']
+        H_icu_vax_t = state['H_icu_vax']
+        R_vax_t = state['R_vax']
+        D_vax_t = state['D_vax']
+        D_treated_t = state['D_treated']
+        D_untreated_t = state['D_untreated']
+        D_vax_treated_t = state['D_vax_treated']
+        D_vax_untreated_t = state['D_vax_untreated']
+        cum_breakthrough_t = state['cum_breakthrough']
         
-        # Aggregated totals (combined vaccinated + unvaccinated for hospital capacity)
-        H_ward_total = sum(H_ward) + sum(H_ward_vax)
-        H_icu_total = sum(H_icu) + sum(H_icu_vax)
+        # Compute aggregates
+        H_ward_total = np.sum(H_ward_t) + np.sum(H_ward_vax_t)
+        H_icu_total = np.sum(H_icu_t) + np.sum(H_icu_vax_t)
         H_total = H_ward_total + H_icu_total
-        E_total = sum(E) + sum(E_vax)
-        I_total = sum(I) + sum(I_vax)
-        X_total = sum(X) + sum(X_vax)
-        D_total = sum(D) + sum(D_vax)
+        E_total = np.sum(E_t) + np.sum(E_vax_t)
+        I_total = np.sum(I_t) + np.sum(I_vax_t)
+        X_total = np.sum(X_t) + np.sum(X_vax_t)
+        D_total = np.sum(D_t) + np.sum(D_vax_t)
         
-        # Vaccinated totals
-        H_ward_vax_total = sum(H_ward_vax)
-        H_icu_vax_total = sum(H_icu_vax)
+        H_ward_vax_total = np.sum(H_ward_vax_t)
+        H_icu_vax_total = np.sum(H_icu_vax_t)
         H_vax_total = H_ward_vax_total + H_icu_vax_total
-        vaccinated_total = sum(S_vax) + sum(E_vax) + sum(I_vax) + sum(X_vax) + H_vax_total + sum(R_vax) + sum(D_vax)
+        vaccinated_total = (np.sum(S_vax_t) + np.sum(E_vax_t) + np.sum(I_vax_t) + np.sum(X_vax_t) + 
+                           H_vax_total + np.sum(R_vax_t) + np.sum(D_vax_t))
         
         H_ward_total_history.append(H_ward_total)
         H_icu_total_history.append(H_icu_total)
@@ -556,354 +1110,94 @@ def simulate_master_hospital_model(
         I_total_history.append(I_total)
         X_total_history.append(X_total)
         D_total_history.append(D_total)
-        D_treated_total_history.append(sum(D_treated) + sum(D_vax_treated))
-        D_untreated_total_history.append(sum(D_untreated) + sum(D_vax_untreated))
+        D_treated_total_history.append(np.sum(D_treated_t) + np.sum(D_vax_treated_t))
+        D_untreated_total_history.append(np.sum(D_untreated_t) + np.sum(D_vax_untreated_t))
         
-        # Vaccinated aggregates
         H_ward_vax_total_history.append(H_ward_vax_total)
         H_icu_vax_total_history.append(H_icu_vax_total)
         H_vax_total_history.append(H_vax_total)
-        E_vax_total_history.append(sum(E_vax))
-        I_vax_total_history.append(sum(I_vax))
-        X_vax_total_history.append(sum(X_vax))
-        D_vax_total_history.append(sum(D_vax))
+        E_vax_total_history.append(np.sum(E_vax_t))
+        I_vax_total_history.append(np.sum(I_vax_t))
+        X_vax_total_history.append(np.sum(X_vax_t))
+        D_vax_total_history.append(np.sum(D_vax_t))
         vaccinated_total_history.append(vaccinated_total)
-        breakthrough_infections_history.append(sum(cum_breakthrough))
+        breakthrough_infections_history.append(np.sum(cum_breakthrough_t))
         
-        # ========================================
-        # Time-Varying Transmission
-        # ========================================
+        # Time-varying parameters
         seasonal_factor = seasonal_forcing(
             t, 1.0,
             amplitude=seasonal_params.get('amplitude', 0.0),
             period=seasonal_params.get('period', 365),
             peak_day=seasonal_params.get('peak_day', 0)
         )
-        
         policy_mult = policy_multiplier(t, interventions)
-        
         beta_t = beta_base * seasonal_factor * policy_mult
         
         beta_t_history.append(beta_t)
         seasonal_factor_history.append(seasonal_factor)
         policy_mult_history.append(policy_mult)
         
-        # ========================================
-        # Capacity Gating (combined vaccinated + unvaccinated)
-        # ========================================
+        # Capacity gating
         g_ward = hill_gate(H_ward_total, K_ward, n_ward)
         g_icu = hill_gate(H_icu_total, K_icu, n_icu)
-        
         g_ward_history.append(g_ward)
         g_icu_history.append(g_icu)
         
-        # ========================================
-        # Force of Infection (includes both vaccinated and unvaccinated infectious)
-        # ========================================
-        # lambda_foi is the base force of infection affecting unvaccinated susceptibles
-        # lambda_foi_vax is the reduced force affecting vaccinated susceptibles (multiplied by 1-VE_infection)
-        lambda_foi = [0.0] * n_ages
-        for a in range(n_ages):
-            for b in range(n_ages):
-                # Hospital contribution (both vaccinated and unvaccinated)
-                H_contrib = H_ward[b] + H_icu[b] + H_ward_vax[b] + H_icu_vax[b]
-                
-                # Infectious contribution:
-                # - Unvaccinated I, X have full infectiousness (modified by theta_X)
-                # - Vaccinated I_vax, X_vax have reduced infectiousness (theta_vax modifier)
-                infectious_unvax = I[b] + theta_X * X[b]
-                infectious_vax = theta_vax * (I_vax[b] + theta_X * X_vax[b])
-                
-                # Total live population for age group b
-                live_pop_b = (S[b] + E[b] + I[b] + X[b] + H_ward[b] + H_icu[b] + R[b] +
-                              S_vax[b] + E_vax[b] + I_vax[b] + X_vax[b] + H_ward_vax[b] + H_icu_vax[b] + R_vax[b])
-                
-                if live_pop_b > 0:
-                    lambda_foi[a] += (beta_t * contact_matrix[a][b] *
-                                     (infectious_unvax + infectious_vax + theta_H * H_contrib) / live_pop_b)
-        
-        # Force of infection for vaccinated (reduced by VE_infection)
-        lambda_foi_vax = [(1 - VE_infection) * lambda_foi[a] for a in range(n_ages)]
-        
-        # ========================================
-        # Transitions (Unvaccinated)
-        # ========================================
-        # S -> E: new exposures (latent period begins)
-        new_exposed = [lambda_foi[a] * S[a] for a in range(n_ages)]
-        
-        # E -> I: becoming infectious (latent period ends)
-        becoming_infectious = [age_params[a].get('alpha', 0.2) * E[a] for a in range(n_ages)]
-        
-        # Ward admissions from X (unvaccinated)
-        admit_ward = [age_params[a]['eta'] * X[a] * g_ward for a in range(n_ages)]
-        
-        # ICU admissions from ward (patients needing escalation)
-        need_icu = [age_params[a].get('eta_icu', 0.1) * H_ward[a] for a in range(n_ages)]
-        admit_icu = [need_icu[a] * g_icu for a in range(n_ages)]
-        
-        # Waning natural immunity flow (R -> S)
-        waning_flow = [omega[a] * R[a] for a in range(n_ages)]
-        
-        # Vaccination flow (S -> S_vax)
-        new_vaccinations = [vaccination_rate[a] * S[a] for a in range(n_ages)]
-        
-        # ========================================
-        # Transitions (Vaccinated - Breakthrough Infections)
-        # ========================================
-        # S_vax -> E_vax: breakthrough exposures
-        new_exposed_vax = [lambda_foi_vax[a] * S_vax[a] for a in range(n_ages)]
-        
-        # Track breakthrough infections
-        for a in range(n_ages):
-            cum_breakthrough[a] += new_exposed_vax[a] * dt
-        
-        # E_vax -> I_vax: becoming infectious
-        becoming_infectious_vax = [age_params[a].get('alpha', 0.2) * E_vax[a] for a in range(n_ages)]
-        
-        # I_vax -> X_vax: progression to severe (reduced by VE_severe)
-        sigma_vax = [(1 - VE_severe) * age_params[a]['sigma'] for a in range(n_ages)]
-        
-        # Ward admissions from X_vax (vaccinated)
-        admit_ward_vax = [age_params[a]['eta'] * X_vax[a] * g_ward for a in range(n_ages)]
-        
-        # ICU admissions from ward (vaccinated)
-        need_icu_vax = [age_params[a].get('eta_icu', 0.1) * H_ward_vax[a] for a in range(n_ages)]
-        admit_icu_vax = [need_icu_vax[a] * g_icu for a in range(n_ages)]
-        
-        # Waning vaccine immunity flow (R_vax -> S or S_vax)
-        waning_flow_vax = [omega_vax[a] * R_vax[a] for a in range(n_ages)]
-        
-        # Unmet care calculations (combined)
-        unmet_ward = [max(0, age_params[a]['eta'] * (X[a] + X_vax[a]) - admit_ward[a] - admit_ward_vax[a]) 
-                      for a in range(n_ages)]
-        unmet_icu = [max(0, need_icu[a] + need_icu_vax[a] - admit_icu[a] - admit_icu_vax[a]) 
-                     for a in range(n_ages)]
-        
-        # Track flows if requested
-        if track_compartment_flows:
-            new_infections_history.append(list(becoming_infectious))
-            ward_admissions_history.append([admit_ward[a] + admit_ward_vax[a] for a in range(n_ages)])
-            icu_admissions_history.append([admit_icu[a] + admit_icu_vax[a] for a in range(n_ages)])
-            new_vaccinations_history.append(list(new_vaccinations))
-            breakthrough_infections_daily_history.append(list(new_exposed_vax))
-        
-        # ========================================
-        # ODEs - Unvaccinated Compartments
-        # ========================================
-        # dS/dt = -lambda*S + omega*R - vaccination_rate*S
-        dS = [-new_exposed[a] + waning_flow[a] - new_vaccinations[a] for a in range(n_ages)]
-        
-        # Add vaccine waning contribution if destination is S (fully susceptible)
-        if vax_waning_destination == 'S':
-            dS = [dS[a] + waning_flow_vax[a] for a in range(n_ages)]
-        
-        # dE/dt = lambda*S - alpha*E
-        dE = [new_exposed[a] - becoming_infectious[a] for a in range(n_ages)]
-        
-        # dI/dt = alpha*E - (gamma_I + mu_I + sigma)*I
-        dI = [becoming_infectious[a] - (age_params[a]['gamma_I'] + age_params[a]['mu_I'] +
-              age_params[a]['sigma']) * I[a] for a in range(n_ages)]
-        
-        dH_ward = []
-        dH_icu = []
-        dX = []
-        dR = []
-        dD = []
-        dD_treated = []
-        dD_untreated = []
-        
-        # Vaccinated derivatives
-        dS_vax = []
-        dE_vax = []
-        dI_vax = []
-        dX_vax = []
-        dH_ward_vax = []
-        dH_icu_vax = []
-        dR_vax = []
-        dD_vax = []
-        dD_vax_treated = []
-        dD_vax_untreated = []
-        
-        for a in range(n_ages):
-            # Get ward/ICU parameters with fallbacks
-            gamma_w = age_params[a].get('gamma_ward', age_params[a].get('gamma_H', 0.2))
-            mu_w = age_params[a].get('mu_ward', age_params[a].get('mu_H', 0.02) * 0.5)
-            gamma_i = age_params[a].get('gamma_icu', age_params[a].get('gamma_H', 0.2) * 0.6)
-            mu_i = age_params[a].get('mu_icu', age_params[a].get('mu_H', 0.02) * 2.0)
-            
-            # ========================================
-            # Differential Mortality Rates (Unvaccinated)
-            # ========================================
-            mu_X_treated = age_params[a]['mu_X']
-            dm_params = config.DIFFERENTIAL_MORTALITY_PARAMS
-            
-            # Age-specific multipliers
-            age_keys = ['young', 'middle', 'elderly']
-            age_key = age_keys[a] if a < len(age_keys) else None
-            
-            mu_X_multiplier = dm_params.get(
-                f'mu_X_untreated_multiplier_{age_key}', dm_params['mu_X_untreated_multiplier']
-            ) if age_key else dm_params['mu_X_untreated_multiplier']
-            
-            mu_ward_multiplier = dm_params.get(
-                f'mu_ward_denied_icu_multiplier_{age_key}', dm_params['mu_ward_denied_icu_multiplier']
-            ) if age_key else dm_params['mu_ward_denied_icu_multiplier']
-            
-            # Use explicit params if provided, else calculate from multipliers
-            mu_X_untreated = age_params[a].get('mu_X_untreated', mu_X_treated * mu_X_multiplier)
-            mu_ward_denied = age_params[a].get('mu_ward_denied_icu', mu_w * mu_ward_multiplier)
-            
-            # Effective mortality rates based on care availability (unvaccinated)
-            fraction_X_denied = 1.0 - g_ward if X[a] > 0 else 0.0
-            effective_mu_X = mu_X_treated * g_ward + mu_X_untreated * fraction_X_denied
-            
-            fraction_icu_denied = 1.0 - g_icu if H_ward[a] > 0 and need_icu[a] > 0 else 0.0
-            eta_icu_a = age_params[a].get('eta_icu', 0.1)
-            effective_mu_ward = mu_w + (mu_ward_denied - mu_w) * eta_icu_a * fraction_icu_denied
-            
-            # ========================================
-            # Death Flows for Tracking (Unvaccinated)
-            # ========================================
-            deaths_I = age_params[a]['mu_I'] * I[a]
-            deaths_X_treated = mu_X_treated * g_ward * X[a]
-            deaths_X_untreated = mu_X_untreated * fraction_X_denied * X[a]
-            deaths_ward_baseline = mu_w * H_ward[a]
-            deaths_ward_icu_denied = (mu_ward_denied - mu_w) * eta_icu_a * fraction_icu_denied * H_ward[a]
-            deaths_icu = mu_i * H_icu[a]
-            
-            # ========================================
-            # Vaccinated Mortality Rates (reduced by VE_death)
-            # ========================================
-            mu_I_vax = (1 - VE_death) * age_params[a]['mu_I']
-            mu_X_treated_vax = (1 - VE_death) * mu_X_treated
-            mu_X_untreated_vax = (1 - VE_death) * mu_X_untreated
-            mu_w_vax = (1 - VE_death) * mu_w
-            mu_ward_denied_vax = (1 - VE_death) * mu_ward_denied
-            mu_i_vax = (1 - VE_death) * mu_i
-            
-            # Effective mortality for vaccinated based on care availability
-            fraction_X_vax_denied = 1.0 - g_ward if X_vax[a] > 0 else 0.0
-            effective_mu_X_vax = mu_X_treated_vax * g_ward + mu_X_untreated_vax * fraction_X_vax_denied
-            
-            fraction_icu_vax_denied = 1.0 - g_icu if H_ward_vax[a] > 0 and need_icu_vax[a] > 0 else 0.0
-            effective_mu_ward_vax = mu_w_vax + (mu_ward_denied_vax - mu_w_vax) * eta_icu_a * fraction_icu_vax_denied
-            
-            # ========================================
-            # Death Flows for Tracking (Vaccinated)
-            # ========================================
-            deaths_I_vax = mu_I_vax * I_vax[a]
-            deaths_X_treated_vax = mu_X_treated_vax * g_ward * X_vax[a]
-            deaths_X_untreated_vax = mu_X_untreated_vax * fraction_X_vax_denied * X_vax[a]
-            deaths_ward_baseline_vax = mu_w_vax * H_ward_vax[a]
-            deaths_ward_icu_denied_vax = (mu_ward_denied_vax - mu_w_vax) * eta_icu_a * fraction_icu_vax_denied * H_ward_vax[a]
-            deaths_icu_vax = mu_i_vax * H_icu_vax[a]
-            
-            # ========================================
-            # Compartment Derivatives (Unvaccinated)
-            # ========================================
-            dX.append(age_params[a]['sigma'] * I[a] - 
-                     (age_params[a]['gamma_X'] + effective_mu_X) * X[a] - admit_ward[a])
-            
-            dH_ward.append(admit_ward[a] - (gamma_w + effective_mu_ward) * H_ward[a] - admit_icu[a])
-            
-            dH_icu.append(admit_icu[a] - (gamma_i + mu_i) * H_icu[a])
-            
-            dR.append(age_params[a]['gamma_I'] * I[a] + 
-                     age_params[a]['gamma_X'] * X[a] +
-                     gamma_w * H_ward[a] + 
-                     gamma_i * H_icu[a] - 
-                     waning_flow[a])
-            
-            total_deaths = (deaths_I + deaths_X_treated + deaths_X_untreated +
-                          deaths_ward_baseline + deaths_ward_icu_denied + deaths_icu)
-            dD.append(total_deaths)
-            
-            # Differential mortality tracking (unvaccinated)
-            dD_treated.append(deaths_I + deaths_X_treated + deaths_ward_baseline + deaths_icu)
-            dD_untreated.append(deaths_X_untreated + deaths_ward_icu_denied)
-            
-            # ========================================
-            # Compartment Derivatives (Vaccinated)
-            # ========================================
-            # dS_vax/dt = vaccination_rate*S - lambda_vax*S_vax [+ omega_vax*R_vax if waning to S_vax]
-            dS_vax_a = new_vaccinations[a] - new_exposed_vax[a]
-            if vax_waning_destination == 'S_vax':
-                dS_vax_a += waning_flow_vax[a]
-            dS_vax.append(dS_vax_a)
-            
-            # dE_vax/dt = lambda_vax*S_vax - alpha*E_vax
-            dE_vax.append(new_exposed_vax[a] - becoming_infectious_vax[a])
-            
-            # dI_vax/dt = alpha*E_vax - (gamma_I + mu_I_vax + sigma_vax)*I_vax
-            dI_vax.append(becoming_infectious_vax[a] - (age_params[a]['gamma_I'] + mu_I_vax +
-                          sigma_vax[a]) * I_vax[a])
-            
-            # dX_vax/dt = sigma_vax*I_vax - (gamma_X + effective_mu_X_vax)*X_vax - admit_ward_vax
-            dX_vax.append(sigma_vax[a] * I_vax[a] - 
-                         (age_params[a]['gamma_X'] + effective_mu_X_vax) * X_vax[a] - admit_ward_vax[a])
-            
-            # dH_ward_vax/dt
-            dH_ward_vax.append(admit_ward_vax[a] - (gamma_w + effective_mu_ward_vax) * H_ward_vax[a] - admit_icu_vax[a])
-            
-            # dH_icu_vax/dt
-            dH_icu_vax.append(admit_icu_vax[a] - (gamma_i + mu_i_vax) * H_icu_vax[a])
-            
-            # dR_vax/dt
-            dR_vax.append(age_params[a]['gamma_I'] * I_vax[a] + 
-                         age_params[a]['gamma_X'] * X_vax[a] +
-                         gamma_w * H_ward_vax[a] + 
-                         gamma_i * H_icu_vax[a] - 
-                         waning_flow_vax[a])
-            
-            total_deaths_vax = (deaths_I_vax + deaths_X_treated_vax + deaths_X_untreated_vax +
-                               deaths_ward_baseline_vax + deaths_ward_icu_denied_vax + deaths_icu_vax)
-            dD_vax.append(total_deaths_vax)
-            
-            # Differential mortality tracking (vaccinated)
-            dD_vax_treated.append(deaths_I_vax + deaths_X_treated_vax + deaths_ward_baseline_vax + deaths_icu_vax)
-            dD_vax_untreated.append(deaths_X_untreated_vax + deaths_ward_icu_denied_vax)
-        
-        # ========================================
-        # Euler Update
-        # ========================================
-        for a in range(n_ages):
-            # Unvaccinated
-            S[a] = max(0, S[a] + dS[a] * dt)
-            E[a] = max(0, E[a] + dE[a] * dt)
-            I[a] = max(0, I[a] + dI[a] * dt)
-            X[a] = max(0, X[a] + dX[a] * dt)
-            H_ward[a] = max(0, H_ward[a] + dH_ward[a] * dt)
-            H_icu[a] = max(0, H_icu[a] + dH_icu[a] * dt)
-            R[a] = max(0, R[a] + dR[a] * dt)
-            D[a] = max(0, D[a] + dD[a] * dt)
-            D_treated[a] = max(0, D_treated[a] + dD_treated[a] * dt)
-            D_untreated[a] = max(0, D_untreated[a] + dD_untreated[a] * dt)
-            
-            # Vaccinated
-            S_vax[a] = max(0, S_vax[a] + dS_vax[a] * dt)
-            E_vax[a] = max(0, E_vax[a] + dE_vax[a] * dt)
-            I_vax[a] = max(0, I_vax[a] + dI_vax[a] * dt)
-            X_vax[a] = max(0, X_vax[a] + dX_vax[a] * dt)
-            H_ward_vax[a] = max(0, H_ward_vax[a] + dH_ward_vax[a] * dt)
-            H_icu_vax[a] = max(0, H_icu_vax[a] + dH_icu_vax[a] * dt)
-            R_vax[a] = max(0, R_vax[a] + dR_vax[a] * dt)
-            D_vax[a] = max(0, D_vax[a] + dD_vax[a] * dt)
-            D_vax_treated[a] = max(0, D_vax_treated[a] + dD_vax_treated[a] * dt)
-            D_vax_untreated[a] = max(0, D_vax_untreated[a] + dD_vax_untreated[a] * dt)
-            
-            # Track unmet care
-            cum_unmet_ward[a] += unmet_ward[a] * dt
-            cum_unmet_icu[a] += unmet_icu[a] * dt
-        
-        # Track overflow
+        # Overflow
         ward_overflow = max(0, H_ward_total - K_ward)
         icu_overflow = max(0, H_icu_total - K_icu)
-        cum_ward_overflow += ward_overflow * dt
-        cum_icu_overflow += icu_overflow * dt
         ward_overflow_history.append(ward_overflow)
         icu_overflow_history.append(icu_overflow)
         
-        t += dt
+        # Cumulative overflow (trapezoidal integration)
+        if t_idx > 0:
+            dt_local = times[t_idx] - times[t_idx - 1]
+            cum_ward_overflow += 0.5 * (ward_overflow_history[-1] + ward_overflow_history[-2]) * dt_local
+            cum_icu_overflow += 0.5 * (icu_overflow_history[-1] + icu_overflow_history[-2]) * dt_local
+            
+            # Compute unmet care per age group
+            for a in range(n_ages):
+                eta_a = age_params[a]['eta']
+                eta_icu_a = age_params[a].get('eta_icu', 0.1)
+                desired_ward = eta_a * (X_t[a] + X_vax_t[a])
+                actual_ward = desired_ward * g_ward
+                unmet_ward_a = max(0, desired_ward - actual_ward)
+                
+                desired_icu = eta_icu_a * (H_ward_t[a] + H_ward_vax_t[a])
+                actual_icu = desired_icu * g_icu
+                unmet_icu_a = max(0, desired_icu - actual_icu)
+                
+                cum_unmet_ward[a] += unmet_ward_a * dt_local
+                cum_unmet_icu[a] += unmet_icu_a * dt_local
+        
+        # Flow tracking from state differences
+        if track_compartment_flows and t_idx > 0:
+            state_prev = _unpack_state(solution[t_idx - 1], n_ages)
+            dt_local = times[t_idx] - times[t_idx - 1]
+            
+            # Approximate flows from compartment changes
+            # new_infections ~ alpha * E (rate of E -> I)
+            alpha_arr = np.array([age_params[a].get('alpha', 0.2) for a in range(n_ages)])
+            new_inf = alpha_arr * state_prev['E']
+            new_infections_history.append(list(new_inf))
+            
+            # Ward admissions ~ eta * X * g_ward
+            eta_arr = np.array([age_params[a]['eta'] for a in range(n_ages)])
+            ward_adm = eta_arr * (state_prev['X'] + state_prev['X_vax']) * g_ward_history[-2]
+            ward_admissions_history.append(list(ward_adm))
+            
+            # ICU admissions ~ eta_icu * H_ward * g_icu
+            eta_icu_arr = np.array([age_params[a].get('eta_icu', 0.1) for a in range(n_ages)])
+            icu_adm = eta_icu_arr * (state_prev['H_ward'] + state_prev['H_ward_vax']) * g_icu_history[-2]
+            icu_admissions_history.append(list(icu_adm))
+            
+            # New vaccinations ~ vaccination_rate * S
+            new_vax = vaccination_rate * state_prev['S']
+            new_vaccinations_history.append(list(new_vax))
+            
+            # Breakthrough infections (rate of change)
+            breakthrough_rate = (cum_breakthrough_t - state_prev['cum_breakthrough']) / dt_local
+            breakthrough_infections_daily_history.append(list(breakthrough_rate))
     
     # ========================================
     # Build Results Dictionary
@@ -986,7 +1280,7 @@ def simulate_master_hospital_model(
             'VE_infection': VE_infection,
             'VE_severe': VE_severe,
             'VE_death': VE_death,
-            'vaccination_rate': vaccination_rate,
+            'vaccination_rate': list(vaccination_rate) if isinstance(vaccination_rate, np.ndarray) else vaccination_rate,
             'theta_vax': theta_vax,
             'vaccine_waning_params': vaccine_waning_params,
             'theta_X': theta_X,
@@ -999,7 +1293,12 @@ def simulate_master_hospital_model(
             'track_differential_mortality': track_differential_mortality,
             'track_compartment_flows': track_compartment_flows,
             'age_params': age_params,
-            'contact_matrix': contact_matrix
+            'contact_matrix': contact_matrix.tolist() if isinstance(contact_matrix, np.ndarray) else contact_matrix,
+            # Solver parameters
+            'solver': solver,
+            'solver_method': solver_method,
+            'rtol': rtol,
+            'atol': atol,
         }
     }
     
