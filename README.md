@@ -2,6 +2,9 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -9,14 +12,21 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
   - [Basic SIXHRD Model](#basic-sixhrd-model)
   - [Age-Structured Extension](#age-structured-extension)
   - [Ward/ICU Separation](#wardicu-separation)
+  - [Master Model](#master-model)
   - [Time-Varying Extensions](#time-varying-extensions)
 - [Mathematical Foundations](#mathematical-foundations)
+  - [Force of Infection](#force-of-infection)
+  - [Hill Function Gating](#hill-function-gating)
+  - [Complete ODE System](#complete-ode-system)
+  - [Differential Mortality](#differential-mortality-equations)
+  - [Time-Varying Transmission](#time-varying-transmission-equations)
 - [Installation](#installation)
 - [Project Structure](#project-structure)
 - [Usage](#usage)
   - [Basic Simulation](#basic-simulation)
   - [Age-Structured Model](#age-structured-model)
-  - [Ward/ICU Model](#wardicu-model)
+  - [Ward/ICU Model](#wardicu-model-usage)
+  - [Master Model](#master-model-usage)
   - [Time-Varying Scenarios](#time-varying-scenarios)
 - [Configuration](#configuration)
 - [Key Features](#key-features)
@@ -37,6 +47,7 @@ This project implements an extended **SIXHRD compartmental model** designed to s
 5. **Tracks unmet care needs** and overflow burden for policy analysis
 
 The model is designed for academic research and educational purposes to explore:
+
 - Epidemic trajectory under hospital capacity limitations
 - Optimal vaccine allocation across age groups
 - Policy trade-offs (lockdowns vs. hospital surge capacity)
@@ -60,7 +71,8 @@ The core model divides the population into six compartments:
 | **D** | Dead - disease-related fatalities |
 
 **Flow diagram:**
-```
+
+```text
 S → I → X → H → R
         ↓   ↓   ↑
         D   D   ↑
@@ -70,11 +82,13 @@ S → I → X → H → R
 ### Age-Structured Extension
 
 The model supports **N age groups** (default: 3) with:
+
 - **Age-specific disease parameters**: Different severity, mortality, and recovery rates
 - **Contact matrix**: Heterogeneous mixing patterns between age groups
 - **Age-targeted vaccination**: Different coverage levels per age group
 
 Default age groups:
+
 - **Young (0-19 years)**: Low severity, low mortality
 - **Middle (20-64 years)**: Moderate severity and mortality
 - **Elderly (65+ years)**: High severity, high mortality
@@ -83,7 +97,7 @@ Default age groups:
 
 The extended model splits hospitalization into two stages:
 
-```
+```text
 S → I → X → H_ward → H_icu → R or D
 ```
 
@@ -93,10 +107,43 @@ S → I → X → H_ward → H_icu → R or D
 | **H_icu** | ICU beds for critical care with ventilators |
 
 Key differences:
+
 - **Separate capacity constraints**: Each with independent Hill function gating
 - **Different mortality rates**: ICU mortality typically higher (sicker patients)
 - **Slower ICU recovery**: Critical care takes longer
 - **Escalation flow**: Ward patients may need ICU; ICU is downstream of ward
+
+### Master Model
+
+The **Master Model** (`master_hospital_model.py`) unifies all features into a single comprehensive simulation:
+
+```python
+simulate_master_hospital_model(
+    beta_base,              # Baseline transmission (modified by seasonality/policy)
+    age_params,             # Age-specific disease parameters
+    contact_matrix,         # Contact rates between age groups
+    ward_capacity,          # General ward capacity
+    icu_capacity,           # ICU capacity
+    coverage,               # Age-specific vaccination coverage
+    VE,                     # Vaccine efficacy
+    age_pops,               # Population by age group
+    seasonal_params,        # Seasonal transmission parameters
+    waning_params,          # Immunity waning rates
+    interventions,          # Policy interventions (lockdowns)
+    track_differential_mortality,  # Track treated vs untreated deaths
+    track_compartment_flows        # Track daily transition flows
+)
+```
+
+**Features combined in the Master Model:**
+
+- ✅ Age-structured compartments (S, I, X, H_ward, H_icu, R, D)
+- ✅ Separate ward and ICU with independent Hill gating
+- ✅ Differential mortality tracking (D_treated vs D_untreated)
+- ✅ Seasonal forcing of transmission
+- ✅ Policy interventions with configurable timing
+- ✅ Age-specific waning immunity
+- ✅ Vaccination with age-targeted coverage
 
 ### Differential Mortality by Care Status
 
@@ -108,19 +155,15 @@ The model tracks deaths separately based on whether patients received hospital c
 | **D_untreated** | Deaths due to being denied admission (overflow deaths) |
 
 **Why this matters:**
+
 - When hospital capacity is constrained, patients in compartment X who need admission may be denied
-- These denied patients experience **higher mortality** (mu_X_untreated > mu_X)
+- These denied patients experience **higher mortality** (μ_X_untreated > μ_X)
 - Similarly, ward patients who need ICU but are denied have elevated mortality
 - Tracking these separately reveals the **excess mortality burden** from capacity constraints
 
-**Mortality rates:**
-```
-mu_X_untreated = mu_X × mu_X_untreated_multiplier  (default: 2.0×)
-mu_ward_denied_icu = mu_ward × 1.5  (for patients denied ICU escalation)
-```
+**Key metric - Preventable Mortality:**
 
-**Key metric - Excess Mortality:**
-$$\text{Excess Mortality \%} = \frac{D_{untreated}}{D_{total}} \times 100$$
+$$\text{Preventable Mortality \%} = \frac{D_{\text{untreated}}}{D_{\text{total}}} \times 100$$
 
 This represents the percentage of deaths attributable to capacity constraints—i.e., deaths that might have been prevented with unlimited capacity.
 
@@ -128,13 +171,8 @@ This represents the percentage of deaths attributable to capacity constraints—
 
 The `time_varying_models` module supports:
 
-1. **Seasonal transmission**: 
-   ```
-   β(t) = β₀ × (1 + A × cos(2π(t - t_peak)/T))
-   ```
-
+1. **Seasonal transmission**: Periodic variation in transmission rate
 2. **Policy interventions**: Step functions reducing transmission during lockdowns
-
 3. **Waning immunity**: Flow from R → S at rate ω, enabling reinfection dynamics
 
 ---
@@ -143,48 +181,145 @@ The `time_varying_models` module supports:
 
 ### Force of Infection
 
-For the age-structured model, the force of infection for age group *a* is:
+For the age-structured model, the force of infection for age group $a$ is:
 
-$$\lambda_a = \beta_{eff} \sum_b C_{ab} \frac{I_b + \theta_X X_b + \theta_H H_b}{N_b}$$
-
-Where:
-- $\beta_{eff} = \beta \times (1 - \text{coverage}_a \times VE)$ (leaky vaccine model)
-- $C_{ab}$ = contact rate from age group *a* to *b*
-- $\theta_X, \theta_H$ = relative infectiousness of severe/hospitalized
-
-### Hospital Admission Gating (Hill Function)
-
-Admissions are gated by a smooth Hill function:
-
-$$g(H) = \frac{1}{1 + (H/K)^n}$$
+$$\lambda_a = \beta_{\text{eff}} \sum_{b} C_{ab} \frac{I_b + \theta_X X_b + \theta_H (H_{\text{ward},b} + H_{\text{icu},b})}{N_b}$$
 
 Where:
-- $K$ = hospital capacity
-- $n$ = Hill coefficient (steepness of constraint)
 
-**Behavior:**
-- When $H \ll K$: $g \approx 1$ (unrestricted admissions)
-- When $H = K$: $g = 0.5$ (admissions halved)
-- When $H \gg K$: $g \rightarrow 0$ (severe restriction)
+- $\beta_{\text{eff}} = \beta \times (1 - \text{coverage}_a \times VE)$ — leaky vaccine model
+- $C_{ab}$ — contact rate from age group $a$ to $b$
+- $\theta_X, \theta_H$ — relative infectiousness of severe/hospitalized compartments
+- $N_b$ — living population in age group $b$
 
-### ODE System (Basic Model)
+### Hill Function Gating
 
-$$\begin{aligned}
-\frac{dS}{dt} &= -\lambda S \\
-\frac{dI}{dt} &= \lambda S - (\gamma_I + \mu_I + \sigma) I \\
-\frac{dX}{dt} &= \sigma I - (\gamma_X + \mu_X) X - \text{admit} \\
-\frac{dH}{dt} &= \text{admit} - (\gamma_H + \mu_H) H \\
-\frac{dR}{dt} &= \gamma_I I + \gamma_X X + \gamma_H H \\
-\frac{dD}{dt} &= \mu_I I + \mu_X X + \mu_H H
-\end{aligned}$$
+Hospital admissions are gated by a smooth Hill function that models capacity constraints:
 
-Where $\text{admit} = \eta \cdot X \cdot g(H)$
+$$g(H) = \frac{1}{1 + \left(\frac{H}{K}\right)^n}$$
+
+Where:
+
+- $K$ — hospital capacity (ward or ICU)
+- $n$ — Hill coefficient controlling steepness of constraint
+- $H$ — current occupancy
+
+**Behavioral properties:**
+
+| Condition | Gating Factor | Interpretation |
+|-----------|---------------|----------------|
+| $H \ll K$ | $g \approx 1$ | Unrestricted admissions |
+| $H = K$ | $g = 0.5$ | Admissions halved |
+| $H \gg K$ | $g \to 0$ | Severe admission restriction |
+
+The Hill coefficient $n$ controls how sharply admissions decline as capacity is approached. Higher values create a sharper transition.
+
+### Complete ODE System
+
+#### Basic SIXHRD Hospital Model
+
+$$\frac{dS}{dt} = -\lambda S$$
+
+$$\frac{dI}{dt} = \lambda S - (\gamma_I + \mu_I + \sigma) I$$
+
+$$\frac{dX}{dt} = \sigma I - (\gamma_X + \mu_X) X - \eta \cdot X \cdot g(H)$$
+
+$$\frac{dH}{dt} = \eta \cdot X \cdot g(H) - (\gamma_H + \mu_H) H$$
+
+$$\frac{dR}{dt} = \gamma_I I + \gamma_X X + \gamma_H H$$
+
+$$\frac{dD}{dt} = \mu_I I + \mu_X X + \mu_H H$$
+
+#### Master Model with Ward/ICU Split
+
+For each age group $a$:
+
+**Susceptible:**
+$$\frac{dS_a}{dt} = -\lambda_a S_a + \omega_a R_a$$
+
+**Infected (mild):**
+$$\frac{dI_a}{dt} = \lambda_a S_a - (\gamma_{I,a} + \mu_{I,a} + \sigma_a) I_a$$
+
+**Severe (needs hospitalization):**
+$$\frac{dX_a}{dt} = \sigma_a I_a - (\gamma_{X,a} + \mu_{X,\text{eff}}) X_a - \text{admit}_{\text{ward},a}$$
+
+**General Ward:**
+$$\frac{dH_{\text{ward},a}}{dt} = \text{admit}_{\text{ward},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward},\text{eff}}) H_{\text{ward},a} - \text{admit}_{\text{icu},a}$$
+
+**ICU:**
+$$\frac{dH_{\text{icu},a}}{dt} = \text{admit}_{\text{icu},a} - (\gamma_{\text{icu},a} + \mu_{\text{icu},a}) H_{\text{icu},a}$$
+
+**Recovered:**
+$$\frac{dR_a}{dt} = \gamma_{I,a} I_a + \gamma_{X,a} X_a + \gamma_{\text{ward},a} H_{\text{ward},a} + \gamma_{\text{icu},a} H_{\text{icu},a} - \omega_a R_a$$
+
+**Deaths:**
+$$\frac{dD_a}{dt} = \mu_{I,a} I_a + \mu_{X,\text{eff}} X_a + \mu_{\text{ward},\text{eff}} H_{\text{ward},a} + \mu_{\text{icu},a} H_{\text{icu},a}$$
+
+Where the admission flows are:
+
+$$\text{admit}_{\text{ward},a} = \eta_a \cdot X_a \cdot g_{\text{ward}}(H_{\text{ward,total}})$$
+
+$$\text{admit}_{\text{icu},a} = \eta_{\text{icu},a} \cdot H_{\text{ward},a} \cdot g_{\text{icu}}(H_{\text{icu,total}})$$
+
+### Differential Mortality Equations
+
+The effective mortality rates account for capacity-constrained care:
+
+**X compartment (severe cases):**
+$$\mu_{X,\text{eff}} = \mu_X \cdot g_{\text{ward}} + \mu_{X,\text{untreated}} \cdot (1 - g_{\text{ward}})$$
+
+Where:
+$$\mu_{X,\text{untreated}} = \mu_X \times m_{\text{X,untreated}}$$
+
+The multiplier $m_{\text{X,untreated}}$ is age-specific:
+
+| Age Group | Multiplier | Interpretation |
+|-----------|------------|----------------|
+| Young | 1.5× | Better compensatory reserve |
+| Middle | 2.0× | Baseline |
+| Elderly | 3.0× | Most vulnerable without care |
+
+**Ward patients denied ICU:**
+$$\mu_{\text{ward,eff}} = \mu_{\text{ward}} + (\mu_{\text{ward,denied}} - \mu_{\text{ward}}) \cdot \eta_{\text{icu}} \cdot (1 - g_{\text{icu}})$$
+
+**Tracking treated vs untreated deaths:**
+
+$$\frac{dD_{\text{treated}}}{dt} = \mu_I I + \mu_X \cdot g_{\text{ward}} \cdot X + \mu_{\text{ward}} H_{\text{ward}} + \mu_{\text{icu}} H_{\text{icu}}$$
+
+$$\frac{dD_{\text{untreated}}}{dt} = \mu_{X,\text{untreated}} \cdot (1 - g_{\text{ward}}) \cdot X + (\mu_{\text{ward,denied}} - \mu_{\text{ward}}) \cdot \eta_{\text{icu}} \cdot (1 - g_{\text{icu}}) \cdot H_{\text{ward}}$$
+
+### Time-Varying Transmission Equations
+
+**Seasonal forcing:**
+$$\beta(t) = \beta_0 \left(1 + A \cos\left(\frac{2\pi(t - t_{\text{peak}})}{T}\right)\right)$$
+
+Where:
+
+- $\beta_0$ — baseline transmission rate
+- $A$ — seasonal amplitude (0 to 1)
+- $T$ — period (typically 365 days)
+- $t_{\text{peak}}$ — day of peak transmission
+
+**Policy interventions:**
+$$\beta_{\text{eff}}(t) = \beta(t) \times (1 - r_{\text{intervention}})$$
+
+Where $r_{\text{intervention}}$ is the transmission reduction during active interventions (e.g., 0.5 for 50% reduction).
+
+**Waning immunity:**
+
+The recovered compartment loses immunity at rate $\omega$:
+$$\frac{dR_a}{dt} = \text{(recoveries)} - \omega_a R_a$$
+$$\frac{dS_a}{dt} = -\lambda_a S_a + \omega_a R_a$$
+
+Age-specific waning rates allow modeling of differential immune durability across age groups.
 
 ### Numerical Integration
 
-The model uses the **Euler method** with configurable time step (default: 0.1 days):
+The model uses the **Euler method** with configurable time step (default: $\Delta t = 0.1$ days):
 
-$$X(t + dt) = X(t) + \frac{dX}{dt} \cdot dt$$
+$$X(t + \Delta t) = X(t) + \frac{dX}{dt} \cdot \Delta t$$
+
+All compartments are constrained to be non-negative after each update.
 
 ---
 
@@ -214,7 +349,7 @@ pip install jupyter
 
 ## Project Structure
 
-```
+```text
 hospital-model/
 ├── config.py                  # Centralized configuration parameters
 ├── hospital_models.py         # Core simulation functions
@@ -242,12 +377,12 @@ hospital-model/
 ### Basic Simulation
 
 ```python
-from hospital_models import simulate_hospital_model
+from hospital_models import simulate_basic_hospital_model
 from plotting_utils import plot_hospital_simulation_stats
 
 # Run basic SIXHRD simulation
 times, S, I, X, H, R, D, overflow, cum_overflow, cum_unmet, unmet = \
-    simulate_hospital_model(
+    simulate_basic_hospital_model(
         beta=0.3,           # Transmission rate
         sigma=0.2,          # Progression to severe
         eta=0.3,            # Hospitalization need rate
@@ -277,12 +412,12 @@ plot_hospital_simulation_stats(
 ### Age-Structured Model
 
 ```python
-from hospital_models import simulate_age_structured_model
+from hospital_models import simulate_age_structured_hospital_model
 from plotting_utils import plot_age_structured_results
 import config
 
 # Run age-structured simulation with config defaults
-results = simulate_age_structured_model(
+results = simulate_age_structured_hospital_model(
     beta=0.3,
     age_params=config.AGE_PARAMS_DEFAULT,
     contact_matrix=config.CONTACT_MATRIX_DEFAULT,
@@ -298,15 +433,15 @@ plot_age_structured_results(results, hosp_capacity=100,
                            age_labels=config.AGE_LABELS_SHORT)
 ```
 
-### Ward/ICU Model
+### Ward/ICU Model Usage
 
 ```python
-from hospital_models import simulate_age_structured_model_icu
+from hospital_models import simulate_age_structured_hospital_model_with_icu_ward_split
 from plotting_utils import plot_age_structured_icu_results
 import config
 
 # Run ward/ICU separated model
-results = simulate_age_structured_model_icu(
+results = simulate_age_structured_hospital_model_with_icu_ward_split(
     beta=0.4,
     age_params=config.AGE_PARAMS_DEFAULT,
     contact_matrix=config.CONTACT_MATRIX_DEFAULT,
@@ -323,51 +458,84 @@ results = simulate_age_structured_model_icu(
 plot_age_structured_icu_results(results)
 ```
 
-### Differential Mortality Analysis
+### Master Model Usage
+
+The Master Model combines all features for comprehensive pandemic simulations:
 
 ```python
-from hospital_models import simulate_age_structured_model_icu
-from plotting_utils import plot_mortality_breakdown, plot_mortality_comparison
+from master_experiments.master_hospital_model import simulate_master_hospital_model
+from plotting_utils import plot_age_structured_icu_results
 import config
 
-# Run simulation with differential mortality tracking (enabled by default)
-results = simulate_age_structured_model_icu(
-    beta=0.5,
+# Full-featured simulation with all extensions
+results = simulate_master_hospital_model(
+    beta_base=0.25,
     age_params=config.AGE_PARAMS_DEFAULT,
     contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    ward_capacity=60,           # Constrained capacity to see overflow
-    icu_capacity=15,
-    hill_coef_ward=4,
-    hill_coef_icu=4,
-    coverage=[0.1, 0.2, 0.5],
+    
+    # Hospital capacity
+    ward_capacity=1600,
+    icu_capacity=400,
+    
+    # Vaccination
+    coverage=[0.3, 0.5, 0.8],  # Age-targeted
     VE=0.7,
-    age_pops=config.AGE_POPS_DEFAULT,
-    track_differential_mortality=True  # Default is True
+    
+    # Population
+    age_pops=config.AGE_POPS_REGIONAL_DEFAULT,  # 200,000 total
+    
+    # Seasonal transmission
+    seasonal_params={
+        'amplitude': 0.25,
+        'period': 365,
+        'peak_day': 0  # Winter peak
+    },
+    
+    # Waning immunity (age-specific)
+    waning_params={
+        'omega_young': 0.002,
+        'omega_middle': 0.003,
+        'omega_elderly': 0.005
+    },
+    
+    # Policy interventions
+    interventions=[
+        {'start_day': 30, 'end_day': 75, 'transmission_reduction': 0.5},
+        {'start_day': 150, 'end_day': 200, 'transmission_reduction': 0.3}
+    ],
+    
+    Tmax=730,  # 2 years
+    track_differential_mortality=True,
+    track_compartment_flows=True
 )
 
-# Visualize mortality breakdown by care status
-stats = plot_mortality_breakdown(results)
-print(f"Excess mortality from capacity: {stats['excess_mortality_pct']:.1f}%")
-
-# Compare scenarios with different capacities
-results_baseline = simulate_age_structured_model_icu(..., ward_capacity=60, icu_capacity=15)
-results_expanded = simulate_age_structured_model_icu(..., ward_capacity=100, icu_capacity=25)
-
-plot_mortality_comparison(
-    [results_baseline, results_expanded],
-    labels=['Baseline Capacity', 'Expanded Capacity']
-)
+# Access comprehensive results
+print(f"Total deaths: {sum(results['D'][a][-1] for a in range(3)):.0f}")
+print(f"Preventable deaths: {results['D_untreated_total'][-1]:.0f}")
+print(f"Peak ICU: {max(results['H_icu_total']):.0f}")
 ```
+
+**Key output fields from Master Model:**
+
+| Field | Description |
+|-------|-------------|
+| `S`, `I`, `X`, `R`, `D` | Compartments by age (list of arrays) |
+| `H_ward`, `H_icu` | Hospital compartments by age |
+| `H_ward_total`, `H_icu_total` | Aggregated hospital occupancy |
+| `D_treated`, `D_untreated` | Deaths by care status |
+| `beta_t`, `seasonal_factor`, `policy_mult` | Time-varying parameters |
+| `g_ward`, `g_icu` | Admission gating factors over time |
+| `cum_ward_overflow`, `cum_icu_overflow` | Cumulative overflow burden |
 
 ### Time-Varying Scenarios
 
 ```python
-from time_varying_models import simulate_age_structured_time_varying
+from time_varying_models import simulate_age_structured_hospital_model_with_time_variance
 from plotting_utils import plot_time_varying_results
 import config
 
 # Seasonal transmission with lockdown
-results = simulate_age_structured_time_varying(
+results = simulate_age_structured_hospital_model_with_time_variance(
     beta_base=0.35,
     age_params=config.AGE_PARAMS_DEFAULT,
     contact_matrix=config.CONTACT_MATRIX_DEFAULT,
@@ -394,6 +562,7 @@ plot_time_varying_results(results, hosp_capacity=100)
 ### Default Parameters (`config.py`)
 
 #### Simulation Parameters
+
 ```python
 DEFAULT_SIM_PARAMS = {
     'Tmax': 200,          # Simulation duration (days)
@@ -406,6 +575,7 @@ DEFAULT_SIM_PARAMS = {
 ```
 
 #### Capacity Parameters
+
 ```python
 DEFAULT_CAPACITY_PARAMS = {
     'ward_capacity': 80,
@@ -415,13 +585,17 @@ DEFAULT_CAPACITY_PARAMS = {
 ```
 
 #### Differential Mortality Parameters
+
 ```python
 DIFFERENTIAL_MORTALITY_PARAMS = {
-    'mu_X_untreated_multiplier': 2.0,  # Mortality multiplier when care denied
-    'mu_X_untreated_young': None,      # Age-specific overrides (None = use multiplier)
-    'mu_X_untreated_middle': None,
-    'mu_X_untreated_elderly': None,
-    'track_mortality_source': True     # Enable D_treated/D_untreated tracking
+    'mu_X_untreated_multiplier': 2.0,            # Multiplier when hospital admission is denied
+    'mu_ward_denied_icu_multiplier': 1.5,        # Multiplier when ICU escalation is denied
+    'mu_X_untreated_multiplier_young': 1.5,      # Age-specific overrides
+    'mu_X_untreated_multiplier_middle': 2.0,
+    'mu_X_untreated_multiplier_elderly': 3.0,
+    'mu_ward_denied_icu_multiplier_young': 1.3,
+    'mu_ward_denied_icu_multiplier_middle': 1.5,
+    'mu_ward_denied_icu_multiplier_elderly': 2.0
 }
 ```
 
@@ -438,6 +612,7 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 #### Contact Matrices
 
 Three predefined contact matrices:
+
 - `CONTACT_MATRIX_DEFAULT`: Assortative mixing (age groups prefer same-age contacts)
 - `CONTACT_MATRIX_HOMOGENEOUS`: Equal mixing across all ages
 - `CONTACT_MATRIX_ASSORTATIVE`: Strong within-age-group preference
@@ -471,7 +646,7 @@ VACCINATION_STRATEGIES = {
 - **Contact matrices**: Model realistic social mixing patterns
 - **Age-targeted interventions**: Different vaccine coverage by age group
 
-### Ward/ICU Separation
+### Ward versus ICU Separation
 
 - **Two-stage hospitalization**: Ward → ICU progression
 - **Independent capacity gating**: Each level has own Hill function
@@ -494,15 +669,11 @@ The `plotting_utils` module provides comprehensive visualizations:
 | Function | Description |
 |----------|-------------|
 | `plot_hospital_simulation_stats()` | 2×2 grid for basic model |
-| `plot_hospital_icu_stats()` | 2×3 grid for ward/ICU model |
 | `plot_age_structured_results()` | 2×3 grid for age-structured model |
 | `plot_age_structured_icu_results()` | 3×3 comprehensive grid for age+ICU |
 | `plot_strategy_comparison()` | Bar charts comparing vaccination strategies |
 | `plot_optimal_allocation()` | Heatmaps for vaccine allocation optimization |
 | `plot_time_varying_results()` | Time-varying transmission visualization |
-| `plot_icu_capacity_sweep()` | ICU allocation optimization curves |
-| `plot_mortality_breakdown()` | Treated vs untreated deaths analysis |
-| `plot_mortality_comparison()` | Compare mortality across scenarios |
 
 ---
 
@@ -555,7 +726,6 @@ opt_young, opt_middle, opt_elderly = plot_optimal_allocation(
 
 ```python
 from simulation_helpers import sweep_icu_capacity
-from plotting_utils import plot_icu_capacity_sweep
 import config
 
 sweep_results = sweep_icu_capacity(
@@ -568,8 +738,9 @@ sweep_results = sweep_icu_capacity(
     n_points=20
 )
 
-plot_icu_capacity_sweep(sweep_results)
-# Output: Optimal ICU fraction and minimum achievable deaths
+print(f"Optimal ICU fraction: {sweep_results['optimal_icu_fraction']:.1%}")
+print(f"Minimum deaths: {sweep_results['optimal_deaths']:.0f}")
+# sweep_results contains arrays you can plot externally (e.g., matplotlib contour/line plots)
 ```
 
 ---
@@ -578,44 +749,60 @@ plot_icu_capacity_sweep(sweep_results)
 
 ### Core Simulation Functions
 
-#### `simulate_hospital_model()`
+#### `simulate_basic_hospital_model()`
+
 Basic SIXHRD model with single hospital compartment.
 
-#### `simulate_age_structured_model()`
+#### `simulate_age_structured_hospital_model()`
+
 Age-structured model with shared hospital capacity.
 
-#### `simulate_age_structured_model_icu()`
+#### `simulate_age_structured_hospital_model_with_icu_ward_split()`
+
 Full age-structured model with ward/ICU separation.
 
-#### `simulate_age_structured_time_varying()`
+#### `simulate_age_structured_hospital_model_with_time_variance()`
+
 Age-structured model with seasonal, policy, and waning dynamics.
+
+#### `simulate_master_hospital_model()`
+
+Unified model combining all features: ward/ICU split, seasonality, interventions, waning immunity, and differential mortality tracking.
 
 ### Helper Functions
 
 #### `compare_vaccination_strategies()`
+
 Run multiple vaccination scenarios and compile results.
 
 #### `compare_vaccination_strategies_icu()`
+
 Compare strategies using ward/ICU model.
 
 #### `optimize_vaccine_allocation()`
+
 Grid search for optimal age-specific vaccine distribution.
 
 #### `compare_capacity_scenarios()`
+
 Compare different ward/ICU capacity allocations.
 
 #### `sweep_icu_capacity()`
+
 Sweep ICU fraction to find optimal allocation.
 
 ### Utility Functions
 
 #### `hill_gate(occupancy, capacity, hill_coef)`
+
 Calculate Hill function gating factor.
 
 #### `seasonal_forcing(t, beta_base, amplitude, period, peak_day)`
+
 Calculate time-varying transmission with seasonality.
 
 #### `policy_multiplier(t, interventions)`
+
 Calculate transmission multiplier from active interventions.
 
 ---
@@ -663,4 +850,24 @@ Calculate transmission multiplier from active interventions.
 - Healthcare worker compartments
 - Economic cost modeling
 - Hospitalization duration distributions
+
 ---
+
+## Citation
+
+If you use this model in your research, please cite:
+
+```bibtex
+@software{hospital_sixhrd_model,
+  author = {Hunter, Jason},
+  title = {Hospital Capacity SIXHRD Epidemic Model},
+  year = {2025},
+  url = {https://github.com/JasonHunter95/hospital-model}
+}
+```
+
+---
+
+## License
+
+MIT License - see LICENSE file for details.

@@ -34,6 +34,30 @@ DEFAULT_CAPACITY_PARAMS = {
     'hill_coef_icu': 4        # hill coefficient for ICU admission gating
 }
 
+REGIONAL_CAPACITY_PARAMS = {
+    'ward_capacity': 1600,
+    'icu_capacity': 400,
+    'total_capacity': 2000,
+    'hill_coef_ward': 4,
+    'hill_coef_icu': 4
+}
+
+METROPOLITAN_CAPACITY_PARAMS = {
+    'ward_capacity': 3200,
+    'icu_capacity': 800,
+    'total_capacity': 4000,
+    'hill_coef_ward': 4,
+    'hill_coef_icu': 4
+}
+
+LARGE_CAPACITY_PARAMS = {
+    'ward_capacity': 16000,
+    'icu_capacity': 4000,
+    'total_capacity': 20000,
+    'hill_coef_ward': 4,
+    'hill_coef_icu': 4
+}
+
 
 # ========================================
 # Differential Mortality Parameters
@@ -58,6 +82,26 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
     'mu_ward_denied_icu_multiplier_young': 1.3,
     'mu_ward_denied_icu_multiplier_middle': 1.5,
     'mu_ward_denied_icu_multiplier_elderly': 2.0
+}
+
+
+# ========================================
+# Initial Conditions
+# ========================================
+
+DEFAULT_INITIAL_CONDITIONS = {
+    'I_single': 10,
+    'X_single': 0,
+    'H_single': 0,
+    'R_single': 0,
+    'D_single': 0,
+    # Age-structured defaults (length should match number of age groups)
+    'I_by_age': [10, 0, 0],
+    'X_by_age': [0, 0, 0],
+    'H_ward_by_age': [0, 0, 0],
+    'H_icu_by_age': [0, 0, 0],
+    'R_by_age': [0, 0, 0],
+    'D_by_age': [0, 0, 0]
 }
 
 
@@ -108,12 +152,77 @@ AGE_LABELS_SHORT = ['Young', 'Middle', 'Elderly']
 
 # default population sizes for each age group
 AGE_POPS_DEFAULT = [3000, 5000, 2000]  # total population: 10,000
-AGE_POPS_LARGE_DEFAULT = [600000, 1000000, 400000]  # total population: 200,000
+AGE_POPS_LARGE_DEFAULT = [600000, 1000000, 400000]  # total population: 2,000,000
+AGE_POPS_METROPOLITAN_DEFAULT = [120000, 200000, 80000]  # total population: 400,000
+AGE_POPS_REGIONAL_DEFAULT = [60000, 100000, 40000]  # total population: 200,000
+
 
 
 # ========================================
 # Age-Specific Disease Parameters
 # ========================================
+
+# young (0-19): very low severity
+YOUNG_PARAMS_EMPIRICAL = {
+    'sigma': 0.02,       # Only 2% progress to severe (vs 10% before)
+    'eta': 0.05,         # 5% of severe cases need ward (vs 20%)
+    'eta_icu': 0.02,     # 2% of ward patients need ICU (rare in young)
+    'gamma_I': 0.14,     # ~7 day infectious period (1/0.14)
+    'mu_I': 0.0001,      # Near-zero community mortality
+    'gamma_X': 0.2,      # ~5 day severe illness
+    'mu_X': 0.002,       # 0.2% daily mortality if severe but treated
+    'mu_X_untreated': 0.006,  # 3x when denied care
+    'gamma_ward': 0.2,   # ~5 day ward stay
+    'mu_ward': 0.001,    # Very low ward mortality
+    'mu_ward_denied_icu': 0.02,  # 2% daily if ICU denied (rare scenario)
+    'gamma_icu': 0.1,    # ~10 day ICU stay
+    'mu_icu': 0.005,     # 0.5% daily ICU mortality
+    # Legacy aliases
+    'gamma_H': 0.2,
+    'mu_H': 0.001
+}
+
+# middle (20-64): moderate severity - subdivide if needed (20-44, 45-64)
+MIDDLE_PARAMS_EMPIRICAL = {
+    'sigma': 0.08,       # 8% progress to severe (vs 20%)
+    'eta': 0.15,         # 15% of severe need ward admission
+    'eta_icu': 0.10,     # 10% of ward patients need ICU
+    'gamma_I': 0.12,     # ~8 day infectious period
+    'mu_I': 0.001,       # 0.1% community mortality (rare)
+    'gamma_X': 0.15,     # ~7 day severe phase
+    'mu_X': 0.008,       # 0.8% daily mortality if severe, treated
+    'mu_X_untreated': 0.024,  # 2.4% when denied care (3x)
+    'gamma_ward': 0.14,  # ~7 day ward stay
+    'mu_ward': 0.005,    # 0.5% daily ward mortality
+    'mu_ward_denied_icu': 0.06,  # 6% daily if ICU denied
+    'gamma_icu': 0.08,   # ~12 day ICU stay (longer than young)
+    'mu_icu': 0.02,      # 2% daily ICU mortality
+    # Legacy aliases
+    'gamma_H': 0.14,
+    'mu_H': 0.005
+}
+
+# elderly (65+): high severity - this is where most deaths occur
+ELDERLY_PARAMS_EMPIRICAL = {
+    'sigma': 0.15,       # 15% progress to severe (vs 30%)
+    'eta': 0.35,         # 35% of severe need ward admission
+    'eta_icu': 0.25,     # 25% of ward patients need ICU
+    'gamma_I': 0.10,     # ~10 day infectious period (slower clearance)
+    'mu_I': 0.005,       # 0.5% community mortality
+    'gamma_X': 0.10,     # ~10 day severe phase
+    'mu_X': 0.025,       # 2.5% daily mortality if severe, treated
+    'mu_X_untreated': 0.10,   # 10% when denied care (4x)
+    'gamma_ward': 0.10,  # ~10 day ward stay
+    'mu_ward': 0.015,    # 1.5% daily ward mortality
+    'mu_ward_denied_icu': 0.12,  # 12% daily if ICU denied
+    'gamma_icu': 0.05,   # ~20 day ICU stay (prolonged)
+    'mu_icu': 0.04,      # 4% daily ICU mortality
+    # Legacy aliases
+    'gamma_H': 0.10,
+    'mu_H': 0.015
+}
+
+AGE_PARAMS_EMPIRICAL = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY_PARAMS_EMPIRICAL]
 
 # young (0-19): low severity, low mortality
 YOUNG_PARAMS = {
@@ -127,9 +236,9 @@ YOUNG_PARAMS = {
     'mu_X_untreated': 0.015,  # mortality rate in X when care denied (1.5x)
     'gamma_ward': 0.25,  # recovery rate from ward
     'mu_ward': 0.003,    # mortality rate in ward (low)
-    'mu_ward_denied_icu': 0.004,  # ward mortality when ICU denied (1.3x)
+    'mu_ward_denied_icu': 0.025,  # ward mortality when ICU denied (8x baseline - these people need the ICU)
     'gamma_icu': 0.15,   # recovery rate from ICU (slower)
-    'mu_icu': 0.02,      # mortality rate in ICU (higher than ward)
+    'mu_icu': 0.008,      # mortality rate in ICU (higher than ward)
     # backward compatibility aliases
     'gamma_H': 0.25,     # recovery rate from H (legacy)
     'mu_H': 0.005        # mortality rate in H (legacy)
@@ -143,13 +252,13 @@ MIDDLE_PARAMS = {
     'gamma_I': 0.1,
     'mu_I': 0.01,
     'gamma_X': 0.15,
-    'mu_X': 0.05,        # mortality rate in X - treated baseline
-    'mu_X_untreated': 0.10,  # mortality rate in X when care denied (2x)
+    'mu_X': 0.02,        # mortality rate in X - treated baseline
+    'mu_X_untreated': 0.06,  # mortality rate in X when care denied (3x)
     'gamma_ward': 0.2,   # recovery rate from ward
     'mu_ward': 0.01,     # mortality rate in ward
-    'mu_ward_denied_icu': 0.015,  # ward mortality when ICU denied (1.5x)
+    'mu_ward_denied_icu': 0.12,  # ward mortality when ICU denied (12x - critical patients)
     'gamma_icu': 0.12,   # recovery rate from ICU (slower)
-    'mu_icu': 0.06,      # mortality rate in ICU (higher)
+    'mu_icu': 0.04,      # mortality rate in ICU (lower than denied)
     # backward compatibility aliases
     'gamma_H': 0.2,
     'mu_H': 0.02
@@ -167,15 +276,39 @@ ELDERLY_PARAMS = {
     'mu_X_untreated': 0.45,  # mortality rate in X when care denied (3x)
     'gamma_ward': 0.15,  # slower recovery from ward
     'mu_ward': 0.04,     # higher mortality in ward
-    'mu_ward_denied_icu': 0.08,  # ward mortality when ICU denied (2x)
+    'mu_ward_denied_icu': 0.35,  # ward mortality when ICU denied (very high)
     'gamma_icu': 0.08,   # much slower ICU recovery
-    'mu_icu': 0.20,      # much higher ICU mortality
+    'mu_icu': 0.12,      # ICU mortality (high but saves lives vs. denial)
     # backward compatibility aliases
     'gamma_H': 0.15,
     'mu_H': 0.08
 }
 
-AGE_PARAMS_DEFAULT = [YOUNG_PARAMS, MIDDLE_PARAMS, ELDERLY_PARAMS]
+# ========================================
+# Parameter Set Selection
+# ========================================
+# Set to True for realistic COVID-like epidemiology
+# Set to False for teaching mode (high visibility, exaggerated effects)
+USE_EMPIRICAL_PARAMS = True
+
+# Legacy parameter sets (high mortality - for teaching)
+AGE_PARAMS_TEACHING = [YOUNG_PARAMS, MIDDLE_PARAMS, ELDERLY_PARAMS]
+
+# Empirical parameter sets (COVID-calibrated)
+AGE_PARAMS_EMPIRICAL = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY_PARAMS_EMPIRICAL]
+
+# Default selection based on mode
+AGE_PARAMS_DEFAULT = AGE_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else AGE_PARAMS_TEACHING
+
+# Also export individual params for backward compatibility
+if USE_EMPIRICAL_PARAMS:
+    YOUNG_PARAMS_ACTIVE = YOUNG_PARAMS_EMPIRICAL
+    MIDDLE_PARAMS_ACTIVE = MIDDLE_PARAMS_EMPIRICAL
+    ELDERLY_PARAMS_ACTIVE = ELDERLY_PARAMS_EMPIRICAL
+else:
+    YOUNG_PARAMS_ACTIVE = YOUNG_PARAMS
+    MIDDLE_PARAMS_ACTIVE = MIDDLE_PARAMS
+    ELDERLY_PARAMS_ACTIVE = ELDERLY_PARAMS
 
 
 # ========================================
@@ -221,66 +354,3 @@ VACCINATION_STRATEGIES = {
 }
 
 
-# ========================================
-# Helper Functions for Time-Varying Parameters
-# ========================================
-
-def seasonal_forcing(t, beta_base, amplitude=0.3, period=365, peak_day=0):
-    """
-    Calculate seasonally-varying transmission rate.
-    
-    Parameters
-    ----------
-    t : float
-        Current time in days.
-    beta_base : float
-        Baseline transmission rate.
-    amplitude : float, optional
-        Seasonal amplitude (0-1), default 0.3.
-    period : float, optional
-        Period in days, default 365.
-    peak_day : float, optional
-        Day when transmission peaks, default 0.
-    
-    Returns
-    -------
-    float
-        Time-varying beta value.
-    
-    Notes
-    -----
-    beta(t) = beta_base * (1 + amplitude * cos(2*pi*(t - peak_day)/period))
-    """
-    return beta_base * (1 + amplitude * np.cos(2 * np.pi * (t - peak_day) / period))
-
-
-def policy_multiplier(t, interventions):
-    """
-    Calculate transmission multiplier based on active policy interventions.
-    
-    Parameters
-    ----------
-    t : float
-        Current time in days.
-    interventions : list of dict
-        List of interventions, each with 'start_day', 'end_day', 'transmission_reduction'.
-    
-    Returns
-    -------
-    float
-        Transmission multiplier (1.0 = no intervention, <1.0 = reduced transmission).
-    
-    Notes
-    -----
-    If multiple interventions overlap, the strongest reduction is applied.
-    """
-    if not interventions:
-        return 1.0
-    
-    # find strongest active intervention
-    max_reduction = 0.0
-    for intervention in interventions:
-        if intervention['start_day'] <= t <= intervention['end_day']:
-            max_reduction = max(max_reduction, intervention['transmission_reduction'])
-    
-    return 1.0 - max_reduction

@@ -8,13 +8,14 @@ code modularity and reduce duplication.
 Supports both legacy single-H models and extended ward/ICU models.
 """
 
-import numpy as np
-from hospital_models import simulate_age_structured_model, simulate_age_structured_model_icu
+import numpy as np # pyright: ignore[reportMissingImports]
+from hospital_models import simulate_age_structured_hospital_model, simulate_age_structured_hospital_model_with_icu_ward_split
 
 
 def compare_vaccination_strategies(beta, age_params, contact_matrix, hosp_capacity, 
                                    age_pops, strategies, hill_coef=4, VE=0.7, 
-                                   theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1):
+                                   theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1,
+                                   verbose=False):
     """
     Compare multiple vaccination strategies and return outcome metrics.
     
@@ -78,7 +79,7 @@ def compare_vaccination_strategies(beta, age_params, contact_matrix, hosp_capaci
     n_ages = len(age_pops)
     
     for strategy_name, coverage_by_age in strategies.items():
-        results = simulate_age_structured_model(
+        results = simulate_age_structured_hospital_model(
             beta=beta,
             age_params=age_params,
             contact_matrix=contact_matrix,
@@ -104,15 +105,15 @@ def compare_vaccination_strategies(beta, age_params, contact_matrix, hosp_capaci
             'coverage': coverage_by_age
         }
         
-        # print summary for each strategy
-        print(f"\n{strategy_name}:")
-        print(f"  Coverage: Young={coverage_by_age[0]:.1f}, "
-              f"Middle={coverage_by_age[1]:.1f}, Elderly={coverage_by_age[2]:.1f}")
-        print(f"  Total deaths: {total_deaths:.0f}")
-        print(f"  Deaths by age: Young={results['D'][0][-1]:.0f}, "
-              f"Middle={results['D'][1][-1]:.0f}, Elderly={results['D'][2][-1]:.0f}")
-        print(f"  Peak hospital: {peak_H:.1f}")
-        print(f"  Cumulative overflow: {results['cum_overflow']:.1f}")
+        if verbose:
+            print(f"\n{strategy_name}:")
+            print(f"  Coverage: Young={coverage_by_age[0]:.1f}, "
+                  f"Middle={coverage_by_age[1]:.1f}, Elderly={coverage_by_age[2]:.1f}")
+            print(f"  Total deaths: {total_deaths:.0f}")
+            print(f"  Deaths by age: Young={results['D'][0][-1]:.0f}, "
+                  f"Middle={results['D'][1][-1]:.0f}, Elderly={results['D'][2][-1]:.0f}")
+            print(f"  Peak hospital: {peak_H:.1f}")
+            print(f"  Cumulative overflow: {results['cum_overflow']:.1f}")
     
     return strategy_results
 
@@ -213,7 +214,7 @@ def optimize_vaccine_allocation(beta, age_params, contact_matrix, hosp_capacity,
             cov_elderly = doses_elderly / age_pops[2]
             
             # run simulation
-            results = simulate_age_structured_model(
+            results = simulate_age_structured_hospital_model(
                 beta=beta,
                 age_params=age_params,
                 contact_matrix=contact_matrix,
@@ -240,7 +241,8 @@ def optimize_vaccine_allocation(beta, age_params, contact_matrix, hosp_capacity,
 def compare_vaccination_strategies_icu(beta, age_params, contact_matrix, ward_capacity,
                                         icu_capacity, age_pops, strategies,
                                         hill_coef_ward=4, hill_coef_icu=4, VE=0.7,
-                                        theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1):
+                                        theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1,
+                                        verbose=False):
     """
     Compare vaccination strategies using the ward/ICU model.
     
@@ -306,7 +308,7 @@ def compare_vaccination_strategies_icu(beta, age_params, contact_matrix, ward_ca
     n_ages = len(age_pops)
     
     for strategy_name, coverage_by_age in strategies.items():
-        results = simulate_age_structured_model_icu(
+        results = simulate_age_structured_hospital_model_with_icu_ward_split(
             beta=beta,
             age_params=age_params,
             contact_matrix=contact_matrix,
@@ -339,23 +341,25 @@ def compare_vaccination_strategies_icu(beta, age_params, contact_matrix, ward_ca
             'coverage': coverage_by_age
         }
         
-        print(f"\n{strategy_name}:")
-        print(f"  Coverage: Young={coverage_by_age[0]:.1f}, "
-              f"Middle={coverage_by_age[1]:.1f}, Elderly={coverage_by_age[2]:.1f}")
-        print(f"  Total deaths: {total_deaths:.0f}")
-        print(f"  Deaths by age: Young={results['D'][0][-1]:.0f}, "
-              f"Middle={results['D'][1][-1]:.0f}, Elderly={results['D'][2][-1]:.0f}")
-        print(f"  Peak ward: {peak_ward:.1f} / {ward_capacity}")
-        print(f"  Peak ICU: {peak_icu:.1f} / {icu_capacity}")
-        print(f"  Cumulative overflow: Ward={results['cum_ward_overflow']:.1f}, "
-              f"ICU={results['cum_icu_overflow']:.1f}")
+        if verbose:
+            print(f"\n{strategy_name}:")
+            print(f"  Coverage: Young={coverage_by_age[0]:.1f}, "
+                  f"Middle={coverage_by_age[1]:.1f}, Elderly={coverage_by_age[2]:.1f}")
+            print(f"  Total deaths: {total_deaths:.0f}")
+            print(f"  Deaths by age: Young={results['D'][0][-1]:.0f}, "
+                  f"Middle={results['D'][1][-1]:.0f}, Elderly={results['D'][2][-1]:.0f}")
+            print(f"  Peak ward: {peak_ward:.1f} / {ward_capacity}")
+            print(f"  Peak ICU: {peak_icu:.1f} / {icu_capacity}")
+            print(f"  Cumulative overflow: Ward={results['cum_ward_overflow']:.1f}, "
+                  f"ICU={results['cum_icu_overflow']:.1f}")
     
     return strategy_results
 
 
 def compare_capacity_scenarios(beta, age_params, contact_matrix, age_pops,
                                capacity_scenarios, coverage, VE=0.7,
-                               theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1):
+                               theta_X=0.5, theta_H=0.3, Tmax=200, time_step=0.1,
+                               verbose=False):
     """
     Compare different ward/ICU capacity allocation scenarios.
     
@@ -412,7 +416,7 @@ def compare_capacity_scenarios(beta, age_params, contact_matrix, age_pops,
     n_ages = len(age_pops)
     
     for scenario_name, (ward_cap, icu_cap) in capacity_scenarios.items():
-        results = simulate_age_structured_model_icu(
+        results = simulate_age_structured_hospital_model_with_icu_ward_split(
             beta=beta,
             age_params=age_params,
             contact_matrix=contact_matrix,
@@ -447,20 +451,21 @@ def compare_capacity_scenarios(beta, age_params, contact_matrix, age_pops,
             'full_results': results  # store full results for detailed plotting
         }
         
-        print(f"\n{scenario_name}:")
-        print(f"  Ward: {ward_cap} beds, ICU: {icu_cap} beds (Total: {ward_cap + icu_cap})")
-        print(f"  Total deaths: {total_deaths:.0f}")
-        print(f"  Peak ward: {peak_ward:.1f} ({peak_ward/ward_cap*100:.0f}% utilization)")
-        print(f"  Peak ICU: {peak_icu:.1f} ({peak_icu/icu_cap*100:.0f}% utilization)")
-        print(f"  Overflow: Ward={results['cum_ward_overflow']:.1f}, "
-              f"ICU={results['cum_icu_overflow']:.1f} pt-days")
+        if verbose:
+            print(f"\n{scenario_name}:")
+            print(f"  Ward: {ward_cap} beds, ICU: {icu_cap} beds (Total: {ward_cap + icu_cap})")
+            print(f"  Total deaths: {total_deaths:.0f}")
+            print(f"  Peak ward: {peak_ward:.1f} ({peak_ward/ward_cap*100:.0f}% utilization)")
+            print(f"  Peak ICU: {peak_icu:.1f} ({peak_icu/icu_cap*100:.0f}% utilization)")
+            print(f"  Overflow: Ward={results['cum_ward_overflow']:.1f}, "
+                  f"ICU={results['cum_icu_overflow']:.1f} pt-days")
     
     return scenario_results
 
 
 def sweep_icu_capacity(beta, age_params, contact_matrix, age_pops, total_beds,
                        coverage, n_points=20, VE=0.7, theta_X=0.5, theta_H=0.3,
-                       Tmax=200, time_step=0.1):
+                       Tmax=200, time_step=0.1, verbose=False):
     """
     Sweep over ward/ICU allocation for fixed total beds.
     
@@ -523,13 +528,14 @@ def sweep_icu_capacity(beta, age_params, contact_matrix, age_pops, total_beds,
     ward_overflow_array = []
     icu_overflow_array = []
     
-    print(f"Sweeping ICU allocation for {total_beds} total beds...")
+    if verbose:
+        print(f"Sweeping ICU allocation for {total_beds} total beds...")
     
     for icu_frac in icu_fractions:
         icu_cap = int(total_beds * icu_frac)
         ward_cap = total_beds - icu_cap
         
-        results = simulate_age_structured_model_icu(
+        results = simulate_age_structured_hospital_model_with_icu_ward_split(
             beta=beta,
             age_params=age_params,
             contact_matrix=contact_matrix,
@@ -558,10 +564,11 @@ def sweep_icu_capacity(beta, age_params, contact_matrix, age_pops, total_beds,
     # Find optimal
     opt_idx = np.argmin(deaths_array)
     
-    print(f"Sweep complete.")
-    print(f"Optimal ICU fraction: {icu_fractions[opt_idx]:.1%} "
-          f"({int(total_beds * icu_fractions[opt_idx])} ICU beds)")
-    print(f"Minimum deaths: {deaths_array[opt_idx]:.0f}")
+    if verbose:
+        print(f"Sweep complete.")
+        print(f"Optimal ICU fraction: {icu_fractions[opt_idx]:.1%} "
+              f"({int(total_beds * icu_fractions[opt_idx])} ICU beds)")
+        print(f"Minimum deaths: {deaths_array[opt_idx]:.0f}")
     
     return {
         'icu_fractions': icu_fractions,
@@ -572,3 +579,68 @@ def sweep_icu_capacity(beta, age_params, contact_matrix, age_pops, total_beds,
         'optimal_deaths': deaths_array[opt_idx],
         'total_beds': total_beds
     }
+    
+
+# ========================================
+# Helper Functions for Time-Varying Parameters
+# ========================================
+
+def seasonal_forcing(t, beta_base, amplitude=0.3, period=365, peak_day=0):
+    """
+    Calculate seasonally-varying transmission rate.
+    
+    Parameters
+    ----------
+    t : float
+        Current time in days.
+    beta_base : float
+        Baseline transmission rate.
+    amplitude : float, optional
+        Seasonal amplitude (0-1), default 0.3.
+    period : float, optional
+        Period in days, default 365.
+    peak_day : float, optional
+        Day when transmission peaks, default 0.
+    
+    Returns
+    -------
+    float
+        Time-varying beta value.
+    
+    Notes
+    -----
+    beta(t) = beta_base * (1 + amplitude * cos(2*pi*(t - peak_day)/period))
+    """
+    return beta_base * (1 + amplitude * np.cos(2 * np.pi * (t - peak_day) / period))
+
+
+def policy_multiplier(t, interventions):
+    """
+    Calculate transmission multiplier based on active policy interventions.
+    
+    Parameters
+    ----------
+    t : float
+        Current time in days.
+    interventions : list of dict
+        List of interventions, each with 'start_day', 'end_day', 'transmission_reduction'.
+    
+    Returns
+    -------
+    float
+        Transmission multiplier (1.0 = no intervention, <1.0 = reduced transmission).
+    
+    Notes
+    -----
+    If multiple interventions overlap, the strongest reduction is applied.
+    """
+    if not interventions:
+        return 1.0
+    
+    # find strongest active intervention
+    max_reduction = 0.0
+    for intervention in interventions:
+        if intervention['start_day'] <= t <= intervention['end_day']:
+            max_reduction = max(max_reduction, intervention['transmission_reduction'])
+    
+    return 1.0 - max_reduction
