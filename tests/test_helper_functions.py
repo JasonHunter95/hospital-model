@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from hospital_models import hill_gate, _validate_age_structured_inputs, _coerce_initial_vector
+from simulation_helpers import hill_gate, _validate_age_structured_inputs, _coerce_initial_vector
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 
 

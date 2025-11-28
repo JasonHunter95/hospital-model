@@ -28,10 +28,12 @@ from config import (
     CONTACT_MATRIX_DEFAULT,
     AGE_POPS_DEFAULT,
     VACCINE_EFFICACY_PARAMS,
-    VACCINE_PROFILES,
+    VACCINE_PROFILES
+)
+from config_helpers import (
     get_vaccine_profile,
     list_vaccine_profiles,
-    describe_vaccine_profile,
+    describe_vaccine_profile
 )
 
 

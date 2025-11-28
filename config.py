@@ -45,6 +45,9 @@ DEFAULT_CAPACITY_PARAMS = {
     'hill_coef_icu': 4
 }
 
+AGE_POPS_DEFAULT = [3000, 5000, 2000]  # Original default (10,000 total)
+
+
 # ============================================================================
 # SECTION 1B: THREE-FACTOR VACCINE MODEL PARAMETERS
 # ============================================================================
