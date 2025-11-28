@@ -1,20 +1,20 @@
 """
-Time-varying extensions to the SIXHRD hospital model.
-
-This module provides models with time-varying transmission rates including:
-- Seasonal forcing
+Time-varying extensions for our model.
+This module provides helper functions for adding various time-varying transmission rates including:
+- Seasonality
 - Policy interventions (lockdowns/relaxations)
 - Waning immunity
 """
 
-import numpy as np # pyright: ignore[reportMissingImports]
+import numpy as np
+
 # ========================================
 # Helper Functions for Time-Varying Parameters
 # ========================================
 
 def seasonal_forcing(t, beta_base, amplitude=0.3, period=365, peak_day=0):
     """
-    Calculate seasonally-varying transmission rate.
+    Calculates seasonally-varying transmission rate.
     
     Parameters
     ----------
@@ -77,3 +77,4 @@ def policy_multiplier(t, interventions):
     
     return 1.0 - max_reduction
 
+## add waning immunity function here
