@@ -1,4 +1,4 @@
-"""Plotting utilities for hospital SIXHRD model visualizations.
+"""Plotting utilities for legacy hospital model visualizations.
 
 This module provides visualization functions for simulation results,
 vaccination strategy comparisons, and vaccine allocation optimization.

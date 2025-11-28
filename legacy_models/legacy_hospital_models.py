@@ -1,5 +1,5 @@
-import config
-from time_varying_helpers import seasonal_forcing, policy_multiplier
+import legacy_config as config
+from legacy_time_varying_helpers import seasonal_forcing, policy_multiplier
 
 
 def _validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage):
@@ -30,16 +30,21 @@ def hill_gate(occupancy, capacity, hill_coef):
     Parameters
     ----------
     occupancy : float
-        Current occupancy level.
+        Current occupancy level. Must be non-negative.
     capacity : float
-        Maximum capacity.
+        Maximum capacity. Must be positive.
     hill_coef : float
-        Hill coefficient controlling steepness of gating.
+        Hill coefficient controlling steepness of gating. Must be non-negative.
     
     Returns
     -------
     float
         Gating factor between 0 and 1.
+    
+    Raises
+    ------
+    ValueError
+        If occupancy is negative, capacity is non-positive, or hill_coef is negative.
     
     Notes
     -----
@@ -47,10 +52,40 @@ def hill_gate(occupancy, capacity, hill_coef):
     - When H << K: g ≈ 1 (admissions unrestricted)
     - When H = K: g = 0.5 (admissions halved)
     - When H >> K: g → 0 (admissions severely limited)
+    
+    Uses log-domain computation for large hill_coef values to prevent overflow.
     """
+    # Input validation
+    if occupancy < 0:
+        raise ValueError(f"occupancy must be non-negative, got {occupancy}")
     if capacity <= 0:
-        return 0.0
-    return 1.0 / (1.0 + (occupancy / capacity) ** hill_coef)
+        raise ValueError(f"capacity must be positive, got {capacity}")
+    if hill_coef < 0:
+        raise ValueError(f"hill_coef must be non-negative, got {hill_coef}")
+    
+    # Edge cases
+    if occupancy == 0:
+        return 1.0
+    if hill_coef == 0:
+        return 0.5
+    
+    import numpy as np
+    
+    ratio = occupancy / capacity
+    
+    # Use log-domain for numerical stability with large hill_coef
+    if ratio >= 1.0:
+        # For ratio >= 1, result is <= 0.5
+        log_ratio = np.log(ratio)
+        exponent = hill_coef * log_ratio
+        if exponent > 700:  # exp(700) ≈ 1e304, near float max
+            return 0.0  # Overwhelmed capacity
+        power = np.exp(exponent)
+    else:
+        # For ratio < 1, (ratio)^n approaches 0, safe to compute directly
+        power = ratio ** hill_coef
+    
+    return 1.0 / (1.0 + power)
 
 
 def simulate_basic_hospital_model(
