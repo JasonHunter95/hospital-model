@@ -37,15 +37,25 @@ class TestHillGate:
         result = hill_gate(0, 100, 4)
         assert result == 1.0
     
-    def test_zero_capacity_returns_zero(self):
-        """When capacity is zero, gating factor should be 0.0 (all denied)."""
-        result = hill_gate(50, 0, 4)
-        assert result == 0.0
+    def test_zero_capacity_raises_error(self):
+        """When capacity is zero, should raise ValueError."""
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            hill_gate(50, 0, 4)
     
-    def test_negative_capacity_returns_zero(self):
-        """When capacity is negative, gating factor should be 0.0."""
-        result = hill_gate(50, -10, 4)
-        assert result == 0.0
+    def test_negative_capacity_raises_error(self):
+        """When capacity is negative, should raise ValueError."""
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            hill_gate(50, -10, 4)
+    
+    def test_negative_occupancy_raises_error(self):
+        """When occupancy is negative, should raise ValueError."""
+        with pytest.raises(ValueError, match="occupancy must be non-negative"):
+            hill_gate(-10, 100, 4)
+    
+    def test_negative_hill_coef_raises_error(self):
+        """When hill_coef is negative, should raise ValueError."""
+        with pytest.raises(ValueError, match="hill_coef must be non-negative"):
+            hill_gate(50, 100, -1)
     
     def test_high_occupancy_approaches_zero(self):
         """When occupancy >> capacity, gating factor should approach 0."""

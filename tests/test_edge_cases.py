@@ -99,29 +99,20 @@ class TestFullVaccination:
 class TestZeroCapacity:
     """Tests for zero or very low capacity scenarios."""
     
-    def test_zero_ward_capacity_all_denied(self, zero_capacity_inputs):
-        """With zero ward capacity, g_ward should be 0 throughout."""
-        results = simulate_master_hospital_model(**zero_capacity_inputs)
-        
-        # All gating factors should be 0 (all admissions denied)
-        for g in results['g_ward']:
-            assert g == 0.0
+    def test_zero_ward_capacity_raises_error(self, zero_capacity_inputs):
+        """With zero ward capacity, should raise ValueError from hill_gate."""
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            simulate_master_hospital_model(**zero_capacity_inputs)
     
-    def test_zero_icu_capacity(self, zero_capacity_inputs):
-        """With zero ICU capacity, g_icu should be 0 throughout."""
-        results = simulate_master_hospital_model(**zero_capacity_inputs)
-        
-        for g in results['g_icu']:
-            assert g == 0.0
+    def test_zero_icu_capacity_raises_error(self, zero_capacity_inputs):
+        """With zero ICU capacity, should raise ValueError from hill_gate."""
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            simulate_master_hospital_model(**zero_capacity_inputs)
     
-    def test_zero_capacity_no_hospital_admissions(self, zero_capacity_inputs):
-        """With zero capacity, H_ward and H_icu should remain near zero."""
-        results = simulate_master_hospital_model(**zero_capacity_inputs)
-        
-        # With initial conditions of 0 and no admissions, should stay at 0
-        for t in range(len(results['times'])):
-            H_ward_total = sum(results['H_ward'][a][t] for a in range(len(zero_capacity_inputs['age_pops'])))
-            assert H_ward_total == pytest.approx(0, abs=0.1)
+    def test_zero_capacity_validation(self, zero_capacity_inputs):
+        """Zero capacity is now caught by input validation."""
+        with pytest.raises(ValueError, match="capacity must be positive"):
+            simulate_master_hospital_model(**zero_capacity_inputs)
     
     def test_low_capacity_high_overflow(self, low_capacity_inputs):
         """With very low capacity, overflow should occur."""
