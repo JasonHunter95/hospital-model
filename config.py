@@ -21,8 +21,6 @@ Usage:
 """
 
 import numpy as np
-from typing import Dict, List, Any, Optional
-from copy import deepcopy
 
 
 # ============================================================================
@@ -39,6 +37,13 @@ DEFAULT_SIM_PARAMS = {
     'theta_vax': 0.5,     # relative infectiousness of vaccinated infected individuals (breakthrough)
 }
 
+DEFAULT_CAPACITY_PARAMS = {
+    'ward_capacity': 80,
+    'icu_capacity': 20,
+    'total_capacity': 100,
+    'hill_coef_ward': 4,
+    'hill_coef_icu': 4
+}
 
 # ============================================================================
 # SECTION 1B: THREE-FACTOR VACCINE MODEL PARAMETERS
@@ -201,9 +206,9 @@ NUM_AGE_GROUPS = 3
 # - EMPIRICAL: COVID-calibrated, realistic epidemiology
 # - TEACHING: Exaggerated effects for educational demonstrations
 
-# --------------------------------------
+# =======================================================================
 # 4.1 Empirical Parameters (COVID-calibrated)
-# --------------------------------------
+# =======================================================================
 
 YOUNG_PARAMS_EMPIRICAL = {
     # Latent period (E → I)
@@ -216,21 +221,18 @@ YOUNG_PARAMS_EMPIRICAL = {
     
     # Recovery rates
     'gamma_I': 0.14,          # ~7 day infectious period
-    'gamma_X': 0.2,           # ~5 day severe phase
+    'gamma_X': 0.2,           # ~5 day severe phase (recovery from X)
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted (~2 day wait if capacity available)
     'gamma_ward': 0.2,        # ~5 day ward stay
     'gamma_icu': 0.1,         # ~10 day ICU stay
     
     # Mortality rates (daily probability)
     'mu_I': 0.0001,           # near-zero community mortality
-    'mu_X': 0.002,            # 0.2% if severe but treated
-    'mu_X_untreated': 0.006,  # 0.6% when denied care (3x)
+    'mu_X': 0.002,            # 0.2% if severe and admitted (treated)
+    'mu_X_untreated': 0.006,  # 0.6% if queued/untreated (3x treated rate)
     'mu_ward': 0.001,         # 0.1% ward mortality
     'mu_ward_denied_icu': 0.02,  # 2% if ICU denied
     'mu_icu': 0.005,          # 0.5% ICU mortality
-    
-    # Legacy aliases for backward compatibility
-    'gamma_H': 0.2,
-    'mu_H': 0.001
 }
 
 MIDDLE_PARAMS_EMPIRICAL = {
@@ -240,16 +242,15 @@ MIDDLE_PARAMS_EMPIRICAL = {
     'eta_icu': 0.10,          # 10% of ward need ICU
     'gamma_I': 0.12,          # ~8 day infectious period
     'gamma_X': 0.15,          # ~7 day severe phase
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
     'gamma_ward': 0.14,       # ~7 day ward stay
     'gamma_icu': 0.08,        # ~12 day ICU stay
     'mu_I': 0.001,
-    'mu_X': 0.008,
-    'mu_X_untreated': 0.024,  # 3x when denied care
+    'mu_X': 0.008,            # treated mortality
+    'mu_X_untreated': 0.024,  # 3x when untreated
     'mu_ward': 0.005,
     'mu_ward_denied_icu': 0.06,
-    'mu_icu': 0.02,
-    'gamma_H': 0.14,
-    'mu_H': 0.005
+    'mu_icu': 0.02
 }
 
 ELDERLY_PARAMS_EMPIRICAL = {
@@ -259,24 +260,23 @@ ELDERLY_PARAMS_EMPIRICAL = {
     'eta_icu': 0.25,          # 25% of ward need ICU
     'gamma_I': 0.10,          # ~10 day infectious period
     'gamma_X': 0.10,          # ~10 day severe phase
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
     'gamma_ward': 0.10,       # ~10 day ward stay
     'gamma_icu': 0.05,        # ~20 day ICU stay
     'mu_I': 0.005,
-    'mu_X': 0.025,
-    'mu_X_untreated': 0.10,   # 4x when denied care
+    'mu_X': 0.025,            # treated mortality
+    'mu_X_untreated': 0.10,   # 4x when untreated
     'mu_ward': 0.015,
     'mu_ward_denied_icu': 0.12,
-    'mu_icu': 0.04,
-    'gamma_H': 0.10,
-    'mu_H': 0.015
+    'mu_icu': 0.04
 }
 
 AGE_PARAMS_EMPIRICAL = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY_PARAMS_EMPIRICAL]
 
 
-# --------------------------------------
+# =======================================================================
 # 4.2 Teaching Parameters (exaggerated effects)
-# --------------------------------------
+# =======================================================================
 
 YOUNG_PARAMS_TEACHING = {
     'alpha': 0.2,
@@ -285,16 +285,15 @@ YOUNG_PARAMS_TEACHING = {
     'eta_icu': 0.05,
     'gamma_I': 0.12,
     'gamma_X': 0.18,
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
     'gamma_ward': 0.25,
     'gamma_icu': 0.15,
     'mu_I': 0.001,
-    'mu_X': 0.01,
-    'mu_X_untreated': 0.015,
+    'mu_X': 0.01,             # treated mortality
+    'mu_X_untreated': 0.015,  # untreated mortality
     'mu_ward': 0.003,
     'mu_ward_denied_icu': 0.025,
-    'mu_icu': 0.008,
-    'gamma_H': 0.25,
-    'mu_H': 0.005
+    'mu_icu': 0.008
 }
 
 MIDDLE_PARAMS_TEACHING = {
@@ -304,16 +303,15 @@ MIDDLE_PARAMS_TEACHING = {
     'eta_icu': 0.15,
     'gamma_I': 0.1,
     'gamma_X': 0.15,
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
     'gamma_ward': 0.2,
     'gamma_icu': 0.12,
     'mu_I': 0.01,
-    'mu_X': 0.02,
-    'mu_X_untreated': 0.06,
+    'mu_X': 0.02,             # treated mortality
+    'mu_X_untreated': 0.06,   # untreated mortality
     'mu_ward': 0.01,
     'mu_ward_denied_icu': 0.12,
-    'mu_icu': 0.04,
-    'gamma_H': 0.2,
-    'mu_H': 0.02
+    'mu_icu': 0.04
 }
 
 ELDERLY_PARAMS_TEACHING = {
@@ -323,24 +321,23 @@ ELDERLY_PARAMS_TEACHING = {
     'eta_icu': 0.3,
     'gamma_I': 0.08,
     'gamma_X': 0.12,
+    'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
     'gamma_ward': 0.15,
     'gamma_icu': 0.08,
     'mu_I': 0.03,
-    'mu_X': 0.15,
-    'mu_X_untreated': 0.45,
+    'mu_X': 0.15,             # treated mortality
+    'mu_X_untreated': 0.45,   # untreated mortality
     'mu_ward': 0.04,
     'mu_ward_denied_icu': 0.35,
-    'mu_icu': 0.12,
-    'gamma_H': 0.15,
-    'mu_H': 0.08
+    'mu_icu': 0.12
 }
 
 AGE_PARAMS_TEACHING = [YOUNG_PARAMS_TEACHING, MIDDLE_PARAMS_TEACHING, ELDERLY_PARAMS_TEACHING]
 
 
-# --------------------------------------
+# =======================================================================
 # 4.3 Parameter Set Selection
-# --------------------------------------
+# =======================================================================
 
 USE_EMPIRICAL_PARAMS = True  # Toggle between empirical and teaching modes
 
@@ -350,11 +347,6 @@ AGE_PARAMS_DEFAULT = AGE_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else AGE_PARAM
 YOUNG_PARAMS_ACTIVE = YOUNG_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else YOUNG_PARAMS_TEACHING
 MIDDLE_PARAMS_ACTIVE = MIDDLE_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else MIDDLE_PARAMS_TEACHING
 ELDERLY_PARAMS_ACTIVE = ELDERLY_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else ELDERLY_PARAMS_TEACHING
-
-# Legacy aliases
-YOUNG_PARAMS = YOUNG_PARAMS_TEACHING
-MIDDLE_PARAMS = MIDDLE_PARAMS_TEACHING
-ELDERLY_PARAMS = ELDERLY_PARAMS_TEACHING
 
 
 # ============================================================================
@@ -532,24 +524,6 @@ HEALTHCARE_SYSTEM_SURGE_MAJOR = {
     'beds_per_1000': 1.88,
 }
 
-# For backward compatibility
-DEFAULT_CAPACITY_PARAMS = {
-    'ward_capacity': 80,
-    'icu_capacity': 20,
-    'total_capacity': 100,
-    'hill_coef_ward': 4,
-    'hill_coef_icu': 4
-}
-
-# Legacy aliases
-REGIONAL_CAPACITY_PARAMS = {
-    'ward_capacity': HEALTHCARE_SYSTEM_METROPOLITAN['ward_capacity'],
-    'icu_capacity': HEALTHCARE_SYSTEM_METROPOLITAN['icu_capacity'],
-    'total_capacity': 2000,
-    'hill_coef_ward': 4,
-    'hill_coef_icu': 4
-}
-
 
 # ============================================================================
 # SECTION 8: INITIAL CONDITIONS
@@ -628,9 +602,9 @@ INITIAL_CONDITIONS_PRESETS = {
 # SECTION 9: TIME-VARYING PARAMETERS
 # ============================================================================
 
-# --------------------------------------
+# =======================================================================
 # 9.1 Seasonal Transmission Patterns
-# --------------------------------------
+# =======================================================================
 
 SEASONAL_PARAMS_NONE = {
     'amplitude': 0.0,
@@ -660,13 +634,10 @@ SEASONAL_PARAMS_STRONG = {
     'description': 'Strong winter peak (continental/cold climate)',
 }
 
-# Legacy alias
-SEASONAL_PARAMS = SEASONAL_PARAMS_MODERATE
 
-
-# --------------------------------------
+# =======================================================================
 # 9.2 Waning Immunity Presets
-# --------------------------------------
+# =======================================================================
 
 WANING_NONE = {
     'omega': 0.0,
@@ -706,19 +677,10 @@ WANING_AGE_DIFFERENTIAL = {
     'description': 'Age-dependent waning (elderly faster)',
 }
 
-# Legacy alias
-WANING_PARAMS = {
-    'default_omega': 0.0,
-    'omega': WANING_FAST['omega'],
-    'omega_young': WANING_AGE_DIFFERENTIAL['omega_young'],
-    'omega_middle': WANING_AGE_DIFFERENTIAL['omega_middle'],
-    'omega_elderly': WANING_AGE_DIFFERENTIAL['omega_elderly'],
-}
 
-
-# --------------------------------------
+# =======================================================================
 # 9.3 Policy Intervention Templates
-# --------------------------------------
+# =======================================================================
 # Each intervention: {'start_day', 'end_day', 'transmission_reduction'}
 
 INTERVENTION_NONE = []
@@ -834,13 +796,7 @@ VACCINATION_STRATEGIES = {
     'herd_immunity_target': {
         'coverage': [0.6, 0.75, 0.85],
         'description': 'High coverage targeting herd immunity',
-    },
-    # Legacy format for backward compatibility
-    'No vaccination': [0.0, 0.0, 0.0],
-    'Uniform 30%': [0.3, 0.3, 0.3],
-    'Elderly priority': [0.1, 0.2, 0.7],
-    'Young priority': [0.7, 0.2, 0.1],
-    'Middle priority': [0.1, 0.7, 0.2],
+    }
 }
 
 # Vaccine efficacy presets
@@ -1056,6 +1012,143 @@ SCENARIO_CYCLICAL_POLICY = {
     'Tmax': 250,
 }
 
+SCENARIO_NOVEL_PATHOGEN = {
+    'name': 'Novel Pathogen Emergence',
+    'description': 'Unknown pathogen with high uncertainty - aggressive response, no prior immunity',
+    'beta_base': TRANSMISSION_PRESETS['high']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_NONE,  # Unknown, assume no waning initially
+    'interventions': INTERVENTION_EARLY_STRONG,  # Aggressive response to unknown threat
+    'vaccination': VACCINATION_STRATEGIES['none'],  # No vaccine available initially
+    'vaccine_profile': None,  # No vaccine
+    'VE': 0.0,
+    'Tmax': 200,
+    'notes': 'Simulates first wave of novel pathogen before vaccines available',
+}
+
+SCENARIO_VACCINE_ROLLOUT_PHASED = {
+    'name': 'Phased Vaccine Rollout',
+    'description': 'Realistic vaccine campaign: elderly first, then middle-age, then young',
+    'beta_base': TRANSMISSION_PRESETS['moderate']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_MILD,
+    'waning_params': WANING_MODERATE,
+    'interventions': INTERVENTION_SUSTAINED_MODERATE,  # Moderate restrictions during rollout
+    'vaccination': {
+        'coverage': [0.1, 0.2, 0.5],  # Initial coverage (elderly prioritized)
+        'description': 'Phased rollout - elderly priority',
+    },
+    'vaccine_profile': 'mrna_original',
+    'vaccination_rate': [0.002, 0.003, 0.005],  # Higher rate for elderly
+    'Tmax': 365,
+    'notes': 'Models realistic phased vaccination campaign over one year',
+}
+
+SCENARIO_VARIANT_EMERGENCE = {
+    'name': 'Variant Emergence Mid-Outbreak',
+    'description': 'New variant with immune escape emerges after initial wave',
+    'beta_base': TRANSMISSION_PRESETS['severe']['beta_base'],  # More transmissible variant
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_MODERATE,
+    'waning_params': WANING_VERY_FAST,  # Immune escape causes faster effective waning
+    'interventions': INTERVENTION_TIERED_ESCALATING,
+    'vaccination': VACCINATION_STRATEGIES['herd_immunity_target'],
+    'vaccine_profile': 'mrna_omicron',  # Reduced efficacy against variant
+    'initial_conditions': INITIAL_CONDITIONS_PRESETS['post_wave'],  # Starting with immunity
+    'Tmax': 300,
+    'notes': 'Simulates immune-evasive variant after population has prior immunity',
+}
+
+SCENARIO_CAPACITY_COLLAPSE = {
+    'name': 'Healthcare Capacity Collapse',
+    'description': 'Severe outbreak overwhelming minimal healthcare infrastructure',
+    'beta_base': TRANSMISSION_PRESETS['severe']['beta_base'],
+    'age_params': AGE_PARAMS_TEACHING,  # Exaggerated severity for clear demonstration
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_RESOURCE_LIMITED,  # Very limited capacity
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_NONE,
+    'interventions': INTERVENTION_DELAYED_MODERATE,  # Delayed response worsens outcome
+    'vaccination': VACCINATION_STRATEGIES['none'],  # No vaccine available
+    'vaccine_profile': None,
+    'VE': 0.0,
+    'Tmax': 200,
+    'notes': 'Demonstrates excess mortality from capacity constraints',
+}
+
+SCENARIO_ENDEMIC_VACCINATION = {
+    'name': 'Endemic with Ongoing Vaccination',
+    'description': 'Long-term endemic equilibrium with seasonal vaccination campaigns',
+    'beta_base': TRANSMISSION_PRESETS['mild']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_STRONG,  # Strong seasonal pattern
+    'waning_params': WANING_MODERATE,  # Natural immunity wanes
+    'interventions': INTERVENTION_NONE,  # No interventions in endemic phase
+    'vaccination': VACCINATION_STRATEGIES['elderly_priority'],
+    'vaccine_profile': 'influenza_typical',
+    'vaccination_rate': [0.001, 0.001, 0.002],  # Ongoing vaccination
+    'vaccine_waning_params': {'omega_vax': 0.003, 'waning_destination': 'S'},
+    'Tmax': 730,  # 2 years
+    'notes': 'Models endemic dynamics with annual vaccination similar to influenza',
+}
+
+SCENARIO_SCHOOL_REOPENING = {
+    'name': 'School Reopening Policy Test',
+    'description': 'Comparison of transmission dynamics with schools open vs closed',
+    'beta_base': TRANSMISSION_PRESETS['moderate']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,  # Schools open (use SCHOOL_CLOSURE for closed)
+    'healthcare_system': HEALTHCARE_SYSTEM_SUBURBAN,
+    'seasonal_params': SEASONAL_PARAMS_MODERATE,
+    'waning_params': WANING_NONE,
+    'interventions': INTERVENTION_NONE,  # No additional interventions
+    'vaccination': VACCINATION_STRATEGIES['young_priority'],
+    'vaccine_profile': 'mrna_original',
+    'initial_conditions': INITIAL_CONDITIONS_PRESETS['young_seed'],
+    'Tmax': 180,
+    'notes': 'Run with CONTACT_MATRIX_DEFAULT (open) and CONTACT_MATRIX_SCHOOL_CLOSURE (closed) to compare',
+}
+
+# Sensitivity analysis base scenarios
+SCENARIO_SENSITIVITY_TRANSMISSION = {
+    'name': 'Transmission Sensitivity Base',
+    'description': 'Base scenario for beta sensitivity analysis',
+    'beta_base': TRANSMISSION_PRESETS['moderate']['beta_base'],  # Will be varied
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_NONE,
+    'interventions': INTERVENTION_NONE,
+    'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
+    'vaccine_profile': 'mrna_original',
+    'Tmax': 200,
+}
+
+SCENARIO_SENSITIVITY_CAPACITY = {
+    'name': 'Capacity Sensitivity Base',
+    'description': 'Base scenario for hospital capacity sensitivity analysis',
+    'beta_base': TRANSMISSION_PRESETS['high']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,  # Will be varied
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_NONE,
+    'interventions': INTERVENTION_NONE,
+    'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
+    'vaccine_profile': 'mrna_original',
+    'Tmax': 200,
+}
+
 
 # Registry of all scenarios for easy access
 SCENARIO_REGISTRY = {
@@ -1072,6 +1165,14 @@ SCENARIO_REGISTRY = {
     'care_home_outbreak': SCENARIO_CARE_HOME_OUTBREAK,
     'surge_capacity': SCENARIO_SURGE_CAPACITY,
     'cyclical_policy': SCENARIO_CYCLICAL_POLICY,
+    'novel_pathogen': SCENARIO_NOVEL_PATHOGEN,
+    'vaccine_rollout_phased': SCENARIO_VACCINE_ROLLOUT_PHASED,
+    'variant_emergence': SCENARIO_VARIANT_EMERGENCE,
+    'capacity_collapse': SCENARIO_CAPACITY_COLLAPSE,
+    'endemic_vaccination': SCENARIO_ENDEMIC_VACCINATION,
+    'school_reopening': SCENARIO_SCHOOL_REOPENING,
+    'sensitivity_transmission': SCENARIO_SENSITIVITY_TRANSMISSION,
+    'sensitivity_capacity': SCENARIO_SENSITIVITY_CAPACITY,
 }
 
 
@@ -1130,305 +1231,4 @@ PARAMETER_RANGES = {
         'description': 'Hill coefficient (admission gating steepness)',
     },
 }
-
-
-# ============================================================================
-# SECTION 13: HELPER FUNCTIONS
-# ============================================================================
-
-def get_scenario_params(scenario_name: str) -> Dict[str, Any]:
-    """
-    Extract parameters from a scenario bundle for simulate_master_hospital_model().
-    
-    Args:
-        scenario_name: Key from SCENARIO_REGISTRY (e.g., 'covid_delta')
-        
-    Returns:
-        Dictionary of parameters ready to unpack into simulation function.
-        
-    Example:
-        params = get_scenario_params('covid_delta')
-        results = simulate_master_hospital_model(**params)
-    """
-    if scenario_name not in SCENARIO_REGISTRY:
-        available = list(SCENARIO_REGISTRY.keys())
-        raise ValueError(f"Unknown scenario '{scenario_name}'. Available: {available}")
-    
-    scenario = deepcopy(SCENARIO_REGISTRY[scenario_name])
-    healthcare = scenario.pop('healthcare_system')
-    vaccination = scenario.pop('vaccination')
-    seasonal = scenario.pop('seasonal_params', {})
-    waning = scenario.pop('waning_params', {})
-    
-    # Handle vaccination - can be dict with 'coverage' key or direct list
-    if isinstance(vaccination, dict):
-        coverage = vaccination.get('coverage', [0.0, 0.0, 0.0])
-    else:
-        coverage = vaccination
-    
-    # Build parameter dict for simulate_master_hospital_model
-    params = {
-        'beta_base': scenario['beta_base'],
-        'age_params': scenario['age_params'],
-        'contact_matrix': scenario.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
-        'age_pops': healthcare['age_pops'],
-        'ward_capacity': healthcare['ward_capacity'],
-        'icu_capacity': healthcare['icu_capacity'],
-        'hill_coef_ward': healthcare.get('hill_coef_ward', 4),
-        'hill_coef_icu': healthcare.get('hill_coef_icu', 4),
-        'coverage': coverage,
-        'VE': scenario.get('VE', 0.7),
-        'Tmax': scenario.get('Tmax', 200),
-        'interventions': scenario.get('interventions', []),
-    }
-    
-    # Add seasonal parameters
-    if seasonal and seasonal.get('amplitude', 0) > 0:
-        params['seasonal_params'] = {
-            'amplitude': seasonal['amplitude'],
-            'period': seasonal.get('period', 365),
-            'peak_day': seasonal.get('peak_day', 0),
-        }
-    
-    # Add waning immunity (pass as waning_params dict for master model)
-    if waning:
-        omega = waning.get('omega', 0.0)
-        if omega > 0:
-            params['waning_params'] = {'omega': omega}
-        # Check for age-specific waning
-        elif 'omega_young' in waning:
-            params['waning_params'] = {
-                'omega_young': waning['omega_young'],
-                'omega_middle': waning['omega_middle'],
-                'omega_elderly': waning['omega_elderly'],
-            }
-    
-    # Add initial conditions if specified
-    if 'initial_conditions' in scenario:
-        ic = scenario['initial_conditions']
-        if 'E_by_age' in ic:
-            params['E0_by_age'] = ic['E_by_age']
-        if 'I_by_age' in ic:
-            params['I0_by_age'] = ic['I_by_age']
-        if 'R_by_age' in ic:
-            params['R0_by_age'] = ic['R_by_age']
-    
-    return params
-
-
-def list_scenarios() -> List[str]:
-    """Return list of available scenario names."""
-    return list(SCENARIO_REGISTRY.keys())
-
-
-def describe_scenario(scenario_name: str) -> str:
-    """Return detailed description of a scenario."""
-    if scenario_name not in SCENARIO_REGISTRY:
-        raise ValueError(f"Unknown scenario: {scenario_name}")
-    
-    s = SCENARIO_REGISTRY[scenario_name]
-    healthcare = s['healthcare_system']
-    vaccination = s['vaccination']
-    
-    # Handle vaccination format
-    if isinstance(vaccination, dict):
-        vax_desc = vaccination.get('description', 'Custom')
-        vax_cov = vaccination.get('coverage', [0, 0, 0])
-    else:
-        vax_desc = 'Custom'
-        vax_cov = vaccination
-    
-    lines = [
-        f"=== {s['name']} ===",
-        f"Description: {s['description']}",
-        f"",
-        f"Transmission:",
-        f"  β_base = {s['beta_base']:.2f}",
-        f"  Seasonality: {s.get('seasonal_params', {}).get('description', 'None')}",
-        f"",
-        f"Healthcare System: {healthcare['name']}",
-        f"  Ward capacity: {healthcare['ward_capacity']}",
-        f"  ICU capacity: {healthcare['icu_capacity']}",
-        f"  Population: {sum(healthcare['age_pops']):,}",
-        f"",
-        f"Vaccination: {vax_desc}",
-        f"  Coverage: {vax_cov}",
-        f"  Efficacy: {s.get('VE', 0.7):.0%}",
-        f"",
-        f"Interventions: {len(s.get('interventions', []))} phase(s)",
-        f"Duration: {s.get('Tmax', 200)} days",
-    ]
-    return '\n'.join(lines)
-
-
-def get_healthcare_systems() -> Dict[str, Dict]:
-    """Return dictionary of available healthcare system configurations."""
-    return {
-        'small': HEALTHCARE_SYSTEM_SMALL,
-        'rural': HEALTHCARE_SYSTEM_RURAL,
-        'suburban': HEALTHCARE_SYSTEM_SUBURBAN,
-        'urban': HEALTHCARE_SYSTEM_URBAN,
-        'metropolitan': HEALTHCARE_SYSTEM_METROPOLITAN,
-        'well_resourced': HEALTHCARE_SYSTEM_WELL_RESOURCED,
-        'resource_limited': HEALTHCARE_SYSTEM_RESOURCE_LIMITED,
-        'surge_mild': HEALTHCARE_SYSTEM_SURGE_MILD,
-        'surge_major': HEALTHCARE_SYSTEM_SURGE_MAJOR,
-    }
-
-
-def get_vaccination_strategies() -> Dict[str, List[float]]:
-    """
-    Return vaccination strategies as {name: coverage_list} format.
-    
-    This normalizes VACCINATION_STRATEGIES to always return coverage arrays,
-    compatible with compare_vaccination_strategies() and other helper functions.
-    
-    Returns:
-        Dictionary mapping strategy names to [young, middle, elderly] coverage lists.
-        
-    Example:
-        strategies = get_vaccination_strategies()
-        # {'none': [0.0, 0.0, 0.0], 'elderly_priority': [0.1, 0.3, 0.8], ...}
-    """
-    result = {}
-    for name, value in VACCINATION_STRATEGIES.items():
-        if isinstance(value, dict):
-            result[name] = value.get('coverage', [0.0, 0.0, 0.0])
-        else:
-            result[name] = value
-    return result
-
-
-def validate_age_params(age_params: List[Dict]) -> bool:
-    """
-    Validate that age parameter dictionaries contain all required keys.
-    
-    Returns True if valid, raises ValueError with details if not.
-    """
-    required_keys = {
-        'alpha', 'sigma', 'eta', 'eta_icu',
-        'gamma_I', 'gamma_X', 'gamma_ward', 'gamma_icu',
-        'mu_I', 'mu_X', 'mu_ward', 'mu_icu',
-    }
-    
-    for i, params in enumerate(age_params):
-        missing = required_keys - set(params.keys())
-        if missing:
-            age_label = AGE_LABELS_SHORT[i] if i < len(AGE_LABELS_SHORT) else f"Age group {i}"
-            raise ValueError(f"{age_label} params missing keys: {missing}")
-    
-    return True
-
-
-def create_custom_scenario(
-    name: str,
-    beta_base: float,
-    healthcare_system: Dict,
-    vaccination_coverage: List[float],
-    **kwargs
-) -> Dict[str, Any]:
-    """
-    Create a custom scenario configuration.
-    
-    Args:
-        name: Scenario name
-        beta_base: Baseline transmission rate
-        healthcare_system: Healthcare system config dict
-        vaccination_coverage: [young, middle, elderly] coverage rates
-        **kwargs: Additional parameters (age_params, interventions, etc.)
-        
-    Returns:
-        Scenario configuration dictionary
-    """
-    scenario = {
-        'name': name,
-        'description': kwargs.get('description', f'Custom scenario: {name}'),
-        'beta_base': beta_base,
-        'age_params': kwargs.get('age_params', AGE_PARAMS_DEFAULT),
-        'contact_matrix': kwargs.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
-        'healthcare_system': healthcare_system,
-        'seasonal_params': kwargs.get('seasonal_params', SEASONAL_PARAMS_NONE),
-        'waning_params': kwargs.get('waning_params', WANING_NONE),
-        'interventions': kwargs.get('interventions', INTERVENTION_NONE),
-        'vaccination': {
-            'coverage': vaccination_coverage,
-            'description': 'Custom coverage',
-        },
-        'VE': kwargs.get('VE', 0.7),
-        'Tmax': kwargs.get('Tmax', 200),
-    }
-    
-    if 'initial_conditions' in kwargs:
-        scenario['initial_conditions'] = kwargs['initial_conditions']
-    
-    return scenario
-
-
-# ============================================================================
-# BACKWARD COMPATIBILITY
-# ============================================================================
-# Preserve commonly-used legacy exports
-
-AGE_POPS_DEFAULT = [3000, 5000, 2000]  # Original default (10,000 total)
-AGE_POPS_REGIONAL_DEFAULT = HEALTHCARE_SYSTEM_SUBURBAN['age_pops']
-
-
-# ============================================================================
-# SECTION 14: VACCINE PROFILE HELPERS
-# ============================================================================
-
-def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
-    """
-    Get vaccine efficacy parameters for a named vaccine profile.
-    
-    Args:
-        profile_name: Key from VACCINE_PROFILES (e.g., 'mrna_original', 'influenza_typical')
-        
-    Returns:
-        Dictionary containing VE_infection, VE_severe, VE_death, theta_vax, omega_vax
-        
-    Example:
-        profile = get_vaccine_profile('mrna_original')
-        results = simulate_master_hospital_model(
-            ...,
-            VE_infection=profile['VE_infection'],
-            VE_severe=profile['VE_severe'],
-            VE_death=profile['VE_death'],
-        )
-    """
-    if profile_name not in VACCINE_PROFILES:
-        available = list(VACCINE_PROFILES.keys())
-        raise ValueError(f"Unknown vaccine profile '{profile_name}'. Available: {available}")
-    
-    return deepcopy(VACCINE_PROFILES[profile_name])
-
-
-def list_vaccine_profiles() -> List[str]:
-    """Return list of available vaccine profile names."""
-    return list(VACCINE_PROFILES.keys())
-
-
-def describe_vaccine_profile(profile_name: str) -> str:
-    """Return detailed description of a vaccine profile."""
-    if profile_name not in VACCINE_PROFILES:
-        raise ValueError(f"Unknown vaccine profile: {profile_name}")
-    
-    p = VACCINE_PROFILES[profile_name]
-    omega_days = f"{1/p['omega_vax']:.0f}" if p['omega_vax'] > 0 else "∞"
-    
-    lines = [
-        f"=== {profile_name} ===",
-        f"Description: {p['description']}",
-        f"",
-        f"Three-Factor Efficacy:",
-        f"  VE_infection: {p['VE_infection']:.0%} (against infection)",
-        f"  VE_severe:    {p['VE_severe']:.0%} (against severe disease)",
-        f"  VE_death:     {p['VE_death']:.0%} (against death)",
-        f"",
-        f"Breakthrough Dynamics:",
-        f"  θ_vax: {p['theta_vax']:.0%} (relative infectiousness)",
-        f"  Immunity duration: ~{omega_days} days",
-    ]
-    return '\n'.join(lines)
-
 
