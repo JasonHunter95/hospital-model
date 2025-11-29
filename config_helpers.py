@@ -162,10 +162,6 @@ def create_custom_scenario(
     
     return scenario
 
-# ============================================================================
-# SECTION 14: VACCINE PROFILE HELPERS
-# ============================================================================
-
 def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
     """
     Get vaccine efficacy parameters for a named vaccine profile.

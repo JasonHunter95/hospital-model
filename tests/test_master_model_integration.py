@@ -344,6 +344,50 @@ class TestNonNegativity:
 
 
 # ========================================
+# Force of Infection Directionality Test
+# ========================================
+
+class TestForceOfInfectionDirectionality:
+    """Ensure the contact matrix orientation matches infector→infectee convention."""
+    
+    def test_force_of_infection_directionality(self):
+        """
+        With asymmetric contacts (infector rows, infectee columns), only inbound contacts
+        should drive infections. Group 0 infects, Group 1 is susceptible. Since
+        contact_matrix[0,1] = 0, Group 1 should never get infected.
+        """
+        age_params = AGE_PARAMS_DEFAULT[:2]
+        contact_matrix = np.array([
+            [5.0, 0.0],   # Infector 0 -> Infectee 1 is zero
+            [10.0, 1.0],  # Infector 1 -> Infectee 0 is high (asymmetric)
+        ])
+        age_pops = [1000, 1000]
+        initial_conditions = {
+            'E_by_age': [0, 0],
+            'I_by_age': [10, 0],  # Seed infections only in Group 0
+            'X_by_age': [0, 0],
+            'H_ward_by_age': [0, 0],
+            'H_icu_by_age': [0, 0],
+            'R_by_age': [0, 0],
+            'D_by_age': [0, 0],
+        }
+        
+        results = simulate_master_hospital_model(
+            beta_base=0.3,
+            age_params=age_params,
+            contact_matrix=contact_matrix,
+            age_pops=age_pops,
+            Tmax=60,
+            time_step=0.1,
+            initial_conditions=initial_conditions,
+        )
+        
+        infections_group_one = results['I'][1]
+        assert np.max(infections_group_one) <= 1e-6, \
+            "Group 1 should remain uninfected when it receives zero inbound contacts."
+
+
+# ========================================
 # Required Input Validation Tests
 # ========================================
 

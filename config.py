@@ -79,7 +79,7 @@ VACCINATION_RATE_PARAMS = {
 VACCINE_WANING_PARAMS = {
     'omega_vax': 0.0,                 # vaccine immunity waning rate (1/days), 0 = no waning
     'omega_vax_by_age': None,         # age-specific waning [young, middle, elderly] or None for uniform
-    'waning_destination': 'S',        # 'S' = return to fully susceptible, 'S_vax' = partial protection
+    'waning_destination': 'S_vax',        # 'S' = return to vaccination susceptibility, 'S_vax' = partial protection
 }
 
 # Preset vaccine profiles for different vaccine types
@@ -463,8 +463,8 @@ HEALTHCARE_SYSTEM_SUBURBAN = {
 HEALTHCARE_SYSTEM_URBAN = {
     'name': 'Urban Medical Center',
     'description': 'Major urban hospital with regional referral capacity',
-    'ward_capacity': 400,
-    'icu_capacity': 100,
+    'ward_capacity': 800,
+    'icu_capacity': 200,
     'hill_coef_ward': 4,
     'hill_coef_icu': 4,
     'age_pops': [120000, 200000, 80000],  # 400,000 total
@@ -833,6 +833,21 @@ SCENARIO_BASELINE = {
     'Tmax': 200,
 }
 
+SCENARIO_LATE_ONSET_MILD_WAVE = {
+    'name': 'Late-Onset Mild Wave',
+    'description': 'Mild outbreak with late seasonal peak and moderate interventions',
+    'beta_base': TRANSMISSION_PRESETS['very_mild']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_NONE,
+    'interventions': INTERVENTION_NONE,
+    'vaccination': VACCINATION_STRATEGIES['none'],
+    'VE': VACCINE_EFFICACY_PRESETS['moderate'],
+    'Tmax': 300,
+}
+
 SCENARIO_COVID_EARLY_2020 = {
     'name': 'COVID-19 Early 2020',
     'description': 'Early pandemic wave, no vaccines, delayed lockdown',
@@ -1099,7 +1114,7 @@ SCENARIO_ENDEMIC_VACCINATION = {
     'vaccination': VACCINATION_STRATEGIES['elderly_priority'],
     'vaccine_profile': 'influenza_typical',
     'vaccination_rate': [0.001, 0.001, 0.002],  # Ongoing vaccination
-    'vaccine_waning_params': {'omega_vax': 0.003, 'waning_destination': 'S'},
+    'vaccine_waning_params': {'omega_vax': 0.003, 'waning_destination': 'S_vax'},
     'Tmax': 730,  # 2 years
     'notes': 'Models endemic dynamics with annual vaccination similar to influenza',
 }
@@ -1156,6 +1171,7 @@ SCENARIO_SENSITIVITY_CAPACITY = {
 # Registry of all scenarios for easy access
 SCENARIO_REGISTRY = {
     'baseline': SCENARIO_BASELINE,
+    'late_onset': SCENARIO_LATE_ONSET_MILD_WAVE,
     'covid_early_2020': SCENARIO_COVID_EARLY_2020,
     'covid_delta': SCENARIO_COVID_DELTA,
     'covid_omicron': SCENARIO_COVID_OMICRON,
