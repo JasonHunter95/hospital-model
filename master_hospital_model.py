@@ -42,7 +42,8 @@ from simulation_helpers import (
     _pack_state,
     _unpack_state,
     _master_deriv_solve_ivp,
-    _master_deriv
+    _master_deriv,
+    validate_demographic_params
 )
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 
@@ -75,6 +76,8 @@ def simulate_master_hospital_model(
     seasonal_params=None,
     waning_params=None,
     interventions=None,
+    # Demographic parameters (births and background deaths)
+    demographic_params=None,
     # Simulation control
     Tmax=None,
     time_step=None,
@@ -173,6 +176,21 @@ def simulate_master_hospital_model(
         - 'start_day': intervention start
         - 'end_day': intervention end  
         - 'transmission_reduction': fraction reduction (0-1)
+    demographic_params : dict, optional
+        Demographic (vital dynamics) parameters for open population modeling:
+        - 'birth_rate': per-capita birth rate (births per person per day).
+          Typical value: ~0.00003 (≈12 births per 1000 per year).
+        - 'mu_background': age-specific background mortality rate (deaths per 
+          person per day). Float for uniform, list for age-specific.
+          Typical values: [0.00001, 0.00005, 0.0003] for young, middle, elderly.
+        - 'birth_age_distribution': fraction of births entering each age group.
+          Default [1, 0, 0, ...] (all births enter youngest age group).
+        - 'neonatal_vaccination_rate': fraction of newborns vaccinated at birth
+          (0-1). Routes that fraction of births to S_vax instead of S.
+        
+        Note: For long simulations (>1 year), if births ≠ deaths, population
+        will drift. Set birth_rate ≈ sum(mu_background * age_pops) / total_pop
+        for approximate population stability.
     Tmax : float, optional
         Simulation duration in days. Default from config.
     time_step : float, optional
@@ -220,6 +238,14 @@ def simulate_master_hospital_model(
         - 'D_treated', 'D_untreated': deaths by care status per age
         - 'D_treated_total', 'D_untreated_total': aggregated
         - 'D_vax_total': total vaccinated deaths over time
+        
+        Demographic metrics (if demographic_params provided):
+        - 'cum_births': cumulative births by age group
+        - 'cum_births_total': total cumulative births
+        - 'cum_background_deaths': cumulative background deaths by age group
+        - 'cum_background_deaths_total': total cumulative background deaths
+        - 'live_population': total living population over time
+        - 'population_change': net population change from demographics
         
         Time-varying parameters:
         - 'beta_t': effective transmission rate over time
@@ -496,6 +522,32 @@ def simulate_master_hospital_model(
     # Breakthrough infection tracking
     cum_breakthrough = [0.0] * n_ages
     
+    # Demographic tracking (births and background deaths)
+    cum_births = [0.0] * n_ages
+    cum_background_deaths = [0.0] * n_ages
+    
+    # ========================================
+    # Validate and Prepare Demographic Parameters
+    # ========================================
+    validated_demo_params = validate_demographic_params(demographic_params, n_ages)
+    
+    # Warn about population drift for long simulations with demographics
+    if Tmax > 365 and validated_demo_params['birth_rate'] > 0:
+        total_pop = sum(age_pops)
+        expected_births_per_year = validated_demo_params['birth_rate'] * total_pop * 365
+        expected_bg_deaths_per_year = np.sum(validated_demo_params['mu_background'] * np.array(age_pops)) * 365
+        net_change_per_year = expected_births_per_year - expected_bg_deaths_per_year
+        pct_change = abs(net_change_per_year) / total_pop * 100
+        if pct_change > 1.0:  # More than 1% annual change
+            warnings.warn(
+                f"Long simulation ({Tmax} days) with demographic imbalance detected. "
+                f"Expected annual births: {expected_births_per_year:.0f}, "
+                f"expected annual background deaths: {expected_bg_deaths_per_year:.0f}. "
+                f"Net population change: {net_change_per_year:+.0f} ({pct_change:.1f}%/year). "
+                f"Consider adjusting birth_rate or mu_background for population stability.",
+                UserWarning
+            )
+    
     # ========================================
     # Build ODE Parameters Dictionary
     # ========================================
@@ -504,6 +556,7 @@ def simulate_master_hospital_model(
         'beta_base': beta_base,
         'contact_matrix': np.asarray(contact_matrix),
         'age_params': age_params,
+        'age_pops': np.array(age_pops),
         'K_ward': K_ward,
         'K_icu': K_icu,
         'n_ward': n_ward,
@@ -521,6 +574,7 @@ def simulate_master_hospital_model(
         'seasonal_params': seasonal_params,
         'interventions': interventions,
         'dm_params': config.DIFFERENTIAL_MORTALITY_PARAMS,
+        'demographic_params': validated_demo_params,
     }
     
     # ========================================
@@ -536,6 +590,8 @@ def simulate_master_hospital_model(
         'D_treated': np.array(D_treated), 'D_untreated': np.array(D_untreated),
         'D_vax_treated': np.array(D_vax_treated), 'D_vax_untreated': np.array(D_vax_untreated),
         'cum_breakthrough': np.array(cum_breakthrough),
+        'cum_births': np.array(cum_births),
+        'cum_background_deaths': np.array(cum_background_deaths),
     }
     y0 = _pack_state(initial_state, n_ages)
     
@@ -637,6 +693,10 @@ def simulate_master_hospital_model(
     D_vax_treated_history = [[] for _ in range(n_ages)]
     D_vax_untreated_history = [[] for _ in range(n_ages)]
     
+    # Demographic tracking histories
+    cum_births_history = [[] for _ in range(n_ages)]
+    cum_background_deaths_history = [[] for _ in range(n_ages)]
+    
     # Extract per-age histories from solution
     for t_idx in range(n_times):
         state = _unpack_state(solution[t_idx], n_ages)
@@ -666,6 +726,8 @@ def simulate_master_hospital_model(
             D_vax_history[a].append(state['D_vax'][a])
             D_vax_treated_history[a].append(state['D_vax_treated'][a])
             D_vax_untreated_history[a].append(state['D_vax_untreated'][a])
+            cum_births_history[a].append(state['cum_births'][a])
+            cum_background_deaths_history[a].append(state['cum_background_deaths'][a])
     
     # ========================================
     # Post-Processing: Compute Auxiliary Metrics
@@ -697,6 +759,11 @@ def simulate_master_hospital_model(
     icu_overflow_history = []
     g_ward_history = []
     g_icu_history = []
+    
+    # Demographic aggregates
+    cum_births_total_history = []
+    cum_background_deaths_total_history = []
+    live_population_history = []
     
     # Time-varying parameter tracking
     beta_t_history = []
@@ -745,6 +812,8 @@ def simulate_master_hospital_model(
         D_vax_treated_t = state['D_vax_treated']
         D_vax_untreated_t = state['D_vax_untreated']
         cum_breakthrough_t = state['cum_breakthrough']
+        cum_births_t = state['cum_births']
+        cum_background_deaths_t = state['cum_background_deaths']
         
         # Compute aggregates
         H_ward_total = np.sum(H_ward_t) + np.sum(H_ward_vax_t)
@@ -754,6 +823,15 @@ def simulate_master_hospital_model(
         I_total = np.sum(I_t) + np.sum(I_vax_t)
         X_total = np.sum(X_t) + np.sum(X_vax_t)
         D_total = np.sum(D_t) + np.sum(D_vax_t)
+        
+        # Demographic aggregates
+        cum_births_total = np.sum(cum_births_t)
+        cum_background_deaths_total = np.sum(cum_background_deaths_t)
+        # Live population = all compartments except D (dead)
+        live_pop = (np.sum(S_t) + np.sum(E_t) + np.sum(I_t) + np.sum(X_t) + 
+                    np.sum(H_ward_t) + np.sum(H_icu_t) + np.sum(R_t) +
+                    np.sum(S_vax_t) + np.sum(E_vax_t) + np.sum(I_vax_t) + np.sum(X_vax_t) + 
+                    np.sum(H_ward_vax_t) + np.sum(H_icu_vax_t) + np.sum(R_vax_t))
         
         H_ward_vax_total = np.sum(H_ward_vax_t)
         H_icu_vax_total = np.sum(H_icu_vax_t)
@@ -780,6 +858,11 @@ def simulate_master_hospital_model(
         D_vax_total_history.append(np.sum(D_vax_t))
         vaccinated_total_history.append(vaccinated_total)
         breakthrough_infections_history.append(np.sum(cum_breakthrough_t))
+        
+        # Demographic aggregates
+        cum_births_total_history.append(cum_births_total)
+        cum_background_deaths_total_history.append(cum_background_deaths_total)
+        live_population_history.append(live_pop)
         
         # Time-varying parameters
         seasonal_factor = seasonal_forcing(
@@ -915,6 +998,13 @@ def simulate_master_hospital_model(
         'vaccinated_total': vaccinated_total_history,
         'breakthrough_infections': breakthrough_infections_history,
         
+        # Demographic outputs
+        'cum_births': cum_births_history,
+        'cum_background_deaths': cum_background_deaths_history,
+        'cum_births_total': cum_births_total_history,
+        'cum_background_deaths_total': cum_background_deaths_total_history,
+        'live_population': live_population_history,
+        
         # Capacity metrics
         'ward_overflow': ward_overflow_history,
         'icu_overflow': icu_overflow_history,
@@ -953,6 +1043,7 @@ def simulate_master_hospital_model(
             'seasonal_params': seasonal_params,
             'waning_params': waning_params,
             'interventions': interventions,
+            'demographic_params': demographic_params,
             'Tmax': Tmax,
             'time_step': time_step,
             'track_differential_mortality': track_differential_mortality,

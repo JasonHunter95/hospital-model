@@ -682,6 +682,82 @@ WANING_AGE_DIFFERENTIAL = {
 
 
 # =======================================================================
+# 9.4 Demographic Parameters (Births and Background Deaths)
+# =======================================================================
+# For long-term simulations, open population dynamics with births and
+# non-disease (background) mortality can be enabled.
+
+DEMOGRAPHIC_PARAMS_NONE = None  # Closed population (default)
+
+DEMOGRAPHIC_PARAMS_DEFAULT = {
+    # Birth rate: daily births per 1000 population (crude birth rate)
+    # Global average ~18/1000/year = 0.049/day per 1000 = 0.000049 per capita/day
+    'birth_rate': 0.000049,
+    
+    # Age distribution of births (where newborns enter S compartment)
+    # Default: all births enter youngest age group
+    'birth_age_distribution': [1.0, 0.0, 0.0],
+    
+    # Background mortality rate: age-specific daily death rates (non-disease)
+    # Based on typical life tables (per capita per day)
+    # Young (0-19): ~0.5/1000/year = 0.0000014/day
+    # Middle (20-64): ~3/1000/year = 0.0000082/day  
+    # Elderly (65+): ~40/1000/year = 0.00011/day
+    'mu_background': [0.0000014, 0.0000082, 0.00011],
+    
+    # Optional: neonatal vaccination rate (fraction of newborns vaccinated)
+    # If > 0, births are split between S and S_vax
+    'neonatal_vaccination_rate': 0.0,
+}
+
+# High-income country demographics (lower birth/death rates)
+DEMOGRAPHIC_PARAMS_HIGH_INCOME = {
+    'birth_rate': 0.000030,  # ~11/1000/year
+    'birth_age_distribution': [1.0, 0.0, 0.0],
+    'mu_background': [0.0000008, 0.0000055, 0.00012],  # Lower young/middle, similar elderly
+    'neonatal_vaccination_rate': 0.0,
+    'description': 'High-income country demographics (low birth rate, low mortality)',
+}
+
+# Low-income country demographics (higher birth/death rates)
+DEMOGRAPHIC_PARAMS_LOW_INCOME = {
+    'birth_rate': 0.000082,  # ~30/1000/year
+    'birth_age_distribution': [1.0, 0.0, 0.0],
+    'mu_background': [0.0000055, 0.00011, 0.00022],  # Higher mortality all ages
+    'neonatal_vaccination_rate': 0.0,
+    'description': 'Low-income country demographics (high birth rate, high mortality)',
+}
+
+# Endemic equilibrium demographics (balanced births and deaths)
+DEMOGRAPHIC_PARAMS_EQUILIBRIUM = {
+    'birth_rate': 0.000049,  # Matched to approximate death rate
+    'birth_age_distribution': [1.0, 0.0, 0.0],
+    'mu_background': [0.0000014, 0.0000082, 0.00011],
+    'neonatal_vaccination_rate': 0.0,
+    'description': 'Demographics balanced for stable population (birth rate ≈ death rate)',
+}
+
+# Neonatal vaccination scenario
+DEMOGRAPHIC_PARAMS_NEONATAL_VAX = {
+    'birth_rate': 0.000049,
+    'birth_age_distribution': [1.0, 0.0, 0.0],
+    'mu_background': [0.0000014, 0.0000082, 0.00011],
+    'neonatal_vaccination_rate': 0.8,  # 80% of newborns vaccinated
+    'description': 'Demographics with 80% neonatal vaccination (e.g., BCG, HepB)',
+}
+
+# Demographic parameter presets registry
+DEMOGRAPHIC_PRESETS = {
+    'none': DEMOGRAPHIC_PARAMS_NONE,
+    'default': DEMOGRAPHIC_PARAMS_DEFAULT,
+    'high_income': DEMOGRAPHIC_PARAMS_HIGH_INCOME,
+    'low_income': DEMOGRAPHIC_PARAMS_LOW_INCOME,
+    'equilibrium': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
+    'neonatal_vax': DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
+}
+
+
+# =======================================================================
 # 9.3 Policy Intervention Templates
 # =======================================================================
 # Each intervention: {'start_day', 'end_day', 'transmission_reduction'}
@@ -920,6 +996,7 @@ SCENARIO_ENDEMIC_EQUILIBRIUM = {
     'interventions': INTERVENTION_NONE,
     'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
     'VE': VACCINE_EFFICACY_PRESETS['moderate'],
+    'demographic_params': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,  # Open population for endemic
     'Tmax': 730,  # 2 years
 }
 
@@ -1115,6 +1192,7 @@ SCENARIO_ENDEMIC_VACCINATION = {
     'vaccine_profile': 'influenza_typical',
     'vaccination_rate': [0.001, 0.001, 0.002],  # Ongoing vaccination
     'vaccine_waning_params': {'omega_vax': 0.003, 'waning_destination': 'S_vax'},
+    'demographic_params': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,  # Open population for endemic
     'Tmax': 730,  # 2 years
     'notes': 'Models endemic dynamics with annual vaccination similar to influenza',
 }
@@ -1167,6 +1245,39 @@ SCENARIO_SENSITIVITY_CAPACITY = {
     'Tmax': 200,
 }
 
+SCENARIO_POPULATION_DYNAMICS = {
+    'name': 'Open Population Dynamics',
+    'description': 'Long-term simulation with births and background deaths for endemic analysis',
+    'beta_base': TRANSMISSION_PRESETS['moderate']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_MODERATE,
+    'waning_params': WANING_MODERATE,
+    'interventions': INTERVENTION_NONE,
+    'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
+    'vaccine_profile': 'mrna_original',
+    'demographic_params': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
+    'Tmax': 1095,  # 3 years
+    'notes': 'Demonstrates open population dynamics with births/deaths for long-term endemic equilibrium',
+}
+
+SCENARIO_NEONATAL_VACCINATION = {
+    'name': 'Neonatal Vaccination Program',
+    'description': 'Long-term endemic with neonatal vaccination (e.g., HepB model)',
+    'beta_base': TRANSMISSION_PRESETS['mild']['beta_base'],
+    'age_params': AGE_PARAMS_EMPIRICAL,
+    'contact_matrix': CONTACT_MATRIX_DEFAULT,
+    'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
+    'seasonal_params': SEASONAL_PARAMS_NONE,
+    'waning_params': WANING_SLOW,
+    'interventions': INTERVENTION_NONE,
+    'vaccination': VACCINATION_STRATEGIES['none'],  # No adult vaccination
+    'demographic_params': DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
+    'Tmax': 1095,  # 3 years
+    'notes': 'Models vaccination at birth only (e.g., HepB, BCG programs)',
+}
+
 
 # Registry of all scenarios for easy access
 SCENARIO_REGISTRY = {
@@ -1192,6 +1303,8 @@ SCENARIO_REGISTRY = {
     'school_reopening': SCENARIO_SCHOOL_REOPENING,
     'sensitivity_transmission': SCENARIO_SENSITIVITY_TRANSMISSION,
     'sensitivity_capacity': SCENARIO_SENSITIVITY_CAPACITY,
+    'population_dynamics': SCENARIO_POPULATION_DYNAMICS,
+    'neonatal_vaccination': SCENARIO_NEONATAL_VACCINATION,
 }
 
 

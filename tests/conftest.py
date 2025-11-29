@@ -18,6 +18,9 @@ from config import (
     DEFAULT_INITIAL_CONDITIONS,
     DIFFERENTIAL_MORTALITY_PARAMS,
     AGE_POPS_DEFAULT,
+    DEMOGRAPHIC_PARAMS_DEFAULT,
+    DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
+    DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
 )
 
 
@@ -225,3 +228,85 @@ def n_ages():
 def total_population():
     """Default total population."""
     return sum(AGE_POPS_DEFAULT)
+
+
+# ========================================
+# Demographic Fixtures
+# ========================================
+
+@pytest.fixture
+def demographic_inputs(minimal_inputs):
+    """Inputs with demographic parameters (births and background deaths)."""
+    return {
+        **minimal_inputs,
+        'demographic_params': DEMOGRAPHIC_PARAMS_DEFAULT,
+        'Tmax': 365,  # 1 year for meaningful demographic effects
+    }
+
+
+@pytest.fixture
+def demographic_equilibrium_inputs(minimal_inputs):
+    """Inputs with balanced demographic parameters for stable population."""
+    return {
+        **minimal_inputs,
+        'demographic_params': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
+        'Tmax': 730,  # 2 years
+    }
+
+
+@pytest.fixture
+def neonatal_vaccination_inputs(minimal_inputs):
+    """Inputs with neonatal vaccination enabled."""
+    return {
+        **minimal_inputs,
+        'demographic_params': DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
+        'VE_infection': 0.8,
+        'VE_severe': 0.9,
+        'VE_death': 0.95,
+        'Tmax': 365,
+    }
+
+
+@pytest.fixture
+def high_birth_rate_inputs(minimal_inputs):
+    """Inputs with high birth rate for testing population growth."""
+    return {
+        **minimal_inputs,
+        'demographic_params': {
+            'birth_rate': 0.0001,  # ~36.5/1000/year (high)
+            'birth_age_distribution': [1.0, 0.0, 0.0],
+            'mu_background': [0.0, 0.0, 0.0],  # No background deaths
+            'neonatal_vaccination_rate': 0.0,
+        },
+        'Tmax': 365,
+    }
+
+
+@pytest.fixture
+def high_mortality_inputs(minimal_inputs):
+    """Inputs with high background mortality for testing population decline."""
+    return {
+        **minimal_inputs,
+        'demographic_params': {
+            'birth_rate': 0.0,  # No births
+            'birth_age_distribution': [1.0, 0.0, 0.0],
+            'mu_background': [0.0001, 0.0001, 0.0001],  # Uniform high mortality
+            'neonatal_vaccination_rate': 0.0,
+        },
+        'Tmax': 365,
+    }
+
+
+@pytest.fixture
+def zero_demographic_inputs(minimal_inputs):
+    """Inputs with zero demographic rates (closed population via explicit params)."""
+    return {
+        **minimal_inputs,
+        'demographic_params': {
+            'birth_rate': 0.0,
+            'birth_age_distribution': [1.0, 0.0, 0.0],
+            'mu_background': [0.0, 0.0, 0.0],
+            'neonatal_vaccination_rate': 0.0,
+        },
+        'Tmax': 200,
+    }

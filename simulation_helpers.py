@@ -1,5 +1,181 @@
+import warnings
 import numpy as np
 from time_varying_helpers import seasonal_forcing, policy_multiplier
+
+
+# ============================================================================
+# DEMOGRAPHIC HELPER FUNCTIONS
+# ============================================================================
+
+def compute_birth_rate(total_live_pop, birth_rate, age_pops, birth_age_distribution=None):
+    """
+    Compute age-distributed birth inflow to susceptible compartments.
+    
+    Births are proportional to the total live population and distributed
+    according to birth_age_distribution (defaults to newborns entering youngest age group).
+    
+    Parameters
+    ----------
+    total_live_pop : float
+        Total current live population (sum across all compartments except D).
+    birth_rate : float
+        Per-capita birth rate (births per person per day).
+        Typical value: ~0.00003 (≈12 births per 1000 per year).
+    age_pops : array-like
+        Initial population sizes by age group (used for scaling).
+    birth_age_distribution : array-like, optional
+        Fraction of births entering each age group. Default: [1, 0, 0, ...]
+        (all births enter youngest age group).
+    
+    Returns
+    -------
+    np.ndarray
+        Birth inflow rate per age group (persons per day).
+    
+    Notes
+    -----
+    Total births = birth_rate × total_live_pop
+    Births per age group = total_births × birth_age_distribution
+    
+    The model assumes births enter the S (unvaccinated susceptible) compartment.
+    For neonatal vaccination, use the neonatal_vaccination_rate parameter in
+    simulate_master_hospital_model() to route a fraction of births to S_vax.
+    """
+    n_ages = len(age_pops)
+    
+    if birth_rate <= 0:
+        return np.zeros(n_ages)
+    
+    total_births = birth_rate * total_live_pop
+    
+    if birth_age_distribution is None:
+        # Default: all births enter youngest age group
+        birth_age_distribution = np.zeros(n_ages)
+        birth_age_distribution[0] = 1.0
+    else:
+        birth_age_distribution = np.array(birth_age_distribution)
+        # Normalize to sum to 1
+        if birth_age_distribution.sum() > 0:
+            birth_age_distribution = birth_age_distribution / birth_age_distribution.sum()
+    
+    return total_births * birth_age_distribution
+
+
+def compute_background_death_rate(compartment_pop, mu_background):
+    """
+    Compute background (non-disease) mortality outflow from a compartment.
+    
+    Parameters
+    ----------
+    compartment_pop : np.ndarray
+        Current population in compartment by age group.
+    mu_background : np.ndarray
+        Age-specific background mortality rate (deaths per person per day).
+        Typical values: [0.00001, 0.00005, 0.0003] for young, middle, elderly.
+    
+    Returns
+    -------
+    np.ndarray
+        Background death outflow rate per age group (persons per day).
+    
+    Notes
+    -----
+    Background mortality applies to all living compartments:
+    S, E, I, X_queued, X_admitted, H_ward, H_icu, R, and their vaccinated counterparts.
+    
+    This represents deaths from causes other than the modeled disease
+    (accidents, other diseases, aging, etc.).
+    
+    Age-specific rates allow realistic modeling where elderly have higher
+    background mortality than young individuals.
+    """
+    return mu_background * compartment_pop
+
+
+def validate_demographic_params(demographic_params, n_ages):
+    """
+    Validate demographic parameters for simulation.
+    
+    Parameters
+    ----------
+    demographic_params : dict or None
+        Dictionary containing:
+        - 'birth_rate': float, per-capita birth rate
+        - 'mu_background': float or list, background mortality rate(s)
+        - 'birth_age_distribution': list, optional
+        - 'neonatal_vaccination_rate': float, optional
+    n_ages : int
+        Number of age groups.
+    
+    Returns
+    -------
+    dict
+        Validated and normalized demographic parameters.
+    
+    Raises
+    ------
+    ValueError
+        If parameters are invalid or inconsistent.
+    """
+    if demographic_params is None:
+        # Return defaults (no demographics)
+        return {
+            'birth_rate': 0.0,
+            'mu_background': np.zeros(n_ages),
+            'birth_age_distribution': None,
+            'neonatal_vaccination_rate': 0.0,
+        }
+    
+    validated = {}
+    
+    # Birth rate
+    birth_rate = demographic_params.get('birth_rate', 0.0)
+    if birth_rate < 0:
+        raise ValueError(f"birth_rate must be non-negative, got {birth_rate}")
+    validated['birth_rate'] = birth_rate
+    
+    # Background mortality (age-specific)
+    mu_background = demographic_params.get('mu_background', 0.0)
+    if isinstance(mu_background, (int, float)):
+        # Uniform rate across all ages
+        validated['mu_background'] = np.full(n_ages, float(mu_background))
+    else:
+        mu_background = np.array(mu_background)
+        if len(mu_background) != n_ages:
+            raise ValueError(
+                f"mu_background length ({len(mu_background)}) must match n_ages ({n_ages})"
+            )
+        if np.any(mu_background < 0):
+            raise ValueError("mu_background values must be non-negative")
+        validated['mu_background'] = mu_background
+    
+    # Birth age distribution
+    birth_age_dist = demographic_params.get('birth_age_distribution', None)
+    if birth_age_dist is not None:
+        birth_age_dist = np.array(birth_age_dist)
+        if len(birth_age_dist) != n_ages:
+            raise ValueError(
+                f"birth_age_distribution length ({len(birth_age_dist)}) must match n_ages ({n_ages})"
+            )
+        if np.any(birth_age_dist < 0):
+            raise ValueError("birth_age_distribution values must be non-negative")
+        # Normalize
+        if birth_age_dist.sum() > 0:
+            birth_age_dist = birth_age_dist / birth_age_dist.sum()
+        validated['birth_age_distribution'] = birth_age_dist
+    else:
+        validated['birth_age_distribution'] = None
+    
+    # Neonatal vaccination rate
+    neonatal_vax_rate = demographic_params.get('neonatal_vaccination_rate', 0.0)
+    if not (0.0 <= neonatal_vax_rate <= 1.0):
+        raise ValueError(
+            f"neonatal_vaccination_rate must be between 0 and 1, got {neonatal_vax_rate}"
+        )
+    validated['neonatal_vaccination_rate'] = neonatal_vax_rate
+    
+    return validated
+
 
 def _validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage):
     """Basic shape validation to catch common configuration mistakes early."""
@@ -102,10 +278,11 @@ STATE_ORDER = [
 ]
 NUM_COMPARTMENTS = len(STATE_ORDER)  # 20
 
-# Additional tracked variables (differential mortality) - these are integrated
+# Additional tracked variables (differential mortality, demographics) - these are integrated
 # separately as part of the state vector for accumulation
-TRACKED_ORDER = ['D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated', 'cum_breakthrough']
-NUM_TRACKED = len(TRACKED_ORDER)  # 5
+TRACKED_ORDER = ['D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated', 
+                 'cum_breakthrough', 'cum_births', 'cum_background_deaths']
+NUM_TRACKED = len(TRACKED_ORDER)  # 7
 
 
 def _pack_state(compartments, n_ages):
@@ -232,7 +409,7 @@ def _hill_gate_vectorized(occupancy, capacity, hill_coef):
 
 def _master_deriv(y, t, params):
     """
-    Compute derivatives for the master SEIXHRD model with vaccination.
+    Compute derivatives for the master SEIXHRD model with vaccination and demographics.
     
     This function computes dy/dt for all compartments using vectorized numpy
     operations for the force of infection calculation.
@@ -259,6 +436,8 @@ def _master_deriv(y, t, params):
         - vaccination_rate: vaccination rates by age
         - seasonal_params: seasonal forcing parameters
         - interventions: list of intervention dicts
+        - demographic_params: dict with birth_rate, mu_background, 
+          birth_age_distribution, neonatal_vaccination_rate
     
     Returns
     -------
@@ -288,7 +467,8 @@ def _master_deriv(y, t, params):
     R_vax = state['R_vax']
     D_vax = state['D_vax']
     # Tracked accumulators (will have their rates computed)
-    # D_treated, D_untreated, D_vax_treated, D_vax_untreated, cum_breakthrough
+    # D_treated, D_untreated, D_vax_treated, D_vax_untreated, cum_breakthrough,
+    # cum_births, cum_background_deaths
     
     # Extract parameters
     beta_base = params['beta_base']
@@ -311,6 +491,14 @@ def _master_deriv(y, t, params):
     seasonal_params = params['seasonal_params']
     interventions = params['interventions']
     dm_params = params['dm_params']
+    
+    # Extract demographic parameters
+    demo_params = params.get('demographic_params', {})
+    birth_rate = demo_params.get('birth_rate', 0.0)
+    mu_background = demo_params.get('mu_background', np.zeros(n_ages))
+    birth_age_dist = demo_params.get('birth_age_distribution', None)
+    neonatal_vax_rate = demo_params.get('neonatal_vaccination_rate', 0.0)
+    age_pops = params.get('age_pops', np.ones(n_ages))  # For birth scaling
     
     # ========================================
     # Time-Varying Transmission
@@ -343,6 +531,42 @@ def _master_deriv(y, t, params):
     X_vax_total = X_queued_vax + X_admitted_vax
     live_pop = (S + E + I + X_total + H_ward + H_icu + R +
                 S_vax + E_vax + I_vax + X_vax_total + H_ward_vax + H_icu_vax + R_vax)
+    total_live_pop = np.sum(live_pop)
+    
+    # ========================================
+    # Demographic Flows (Births and Background Deaths)
+    # ========================================
+    # Births: enter S (unvaccinated) by default, with optional neonatal vaccination to S_vax
+    births_total = compute_birth_rate(total_live_pop, birth_rate, age_pops, birth_age_dist)
+    births_to_S = births_total * (1.0 - neonatal_vax_rate)
+    births_to_S_vax = births_total * neonatal_vax_rate
+    
+    # Background deaths: age-specific mortality applied to all living compartments
+    # Unvaccinated compartments
+    bg_deaths_S = compute_background_death_rate(S, mu_background)
+    bg_deaths_E = compute_background_death_rate(E, mu_background)
+    bg_deaths_I = compute_background_death_rate(I, mu_background)
+    bg_deaths_X_queued = compute_background_death_rate(X_queued, mu_background)
+    bg_deaths_X_admitted = compute_background_death_rate(X_admitted, mu_background)
+    bg_deaths_H_ward = compute_background_death_rate(H_ward, mu_background)
+    bg_deaths_H_icu = compute_background_death_rate(H_icu, mu_background)
+    bg_deaths_R = compute_background_death_rate(R, mu_background)
+    
+    # Vaccinated compartments
+    bg_deaths_S_vax = compute_background_death_rate(S_vax, mu_background)
+    bg_deaths_E_vax = compute_background_death_rate(E_vax, mu_background)
+    bg_deaths_I_vax = compute_background_death_rate(I_vax, mu_background)
+    bg_deaths_X_queued_vax = compute_background_death_rate(X_queued_vax, mu_background)
+    bg_deaths_X_admitted_vax = compute_background_death_rate(X_admitted_vax, mu_background)
+    bg_deaths_H_ward_vax = compute_background_death_rate(H_ward_vax, mu_background)
+    bg_deaths_H_icu_vax = compute_background_death_rate(H_icu_vax, mu_background)
+    bg_deaths_R_vax = compute_background_death_rate(R_vax, mu_background)
+    
+    # Total background deaths (for tracking)
+    total_bg_deaths = (bg_deaths_S + bg_deaths_E + bg_deaths_I + bg_deaths_X_queued + 
+                       bg_deaths_X_admitted + bg_deaths_H_ward + bg_deaths_H_icu + bg_deaths_R +
+                       bg_deaths_S_vax + bg_deaths_E_vax + bg_deaths_I_vax + bg_deaths_X_queued_vax +
+                       bg_deaths_X_admitted_vax + bg_deaths_H_ward_vax + bg_deaths_H_icu_vax + bg_deaths_R_vax)
     
     # Avoid division by zero
     live_pop_safe = np.maximum(live_pop, 1e-10)
@@ -485,24 +709,25 @@ def _master_deriv(y, t, params):
     # ========================================
     # Compartment Derivatives (Unvaccinated)
     # ========================================
-    dS = -new_exposed + waning_flow - new_vaccinations
+    # Births enter S, background deaths leave all living compartments
+    dS = births_to_S - new_exposed + waning_flow - new_vaccinations - bg_deaths_S
     if vax_waning_destination == 'S':
         dS = dS + waning_flow_vax
     
-    dE = new_exposed - becoming_infectious
-    dI = becoming_infectious - (gamma_I + mu_I + sigma) * I
+    dE = new_exposed - becoming_infectious - bg_deaths_E
+    dI = becoming_infectious - (gamma_I + mu_I + sigma) * I - bg_deaths_I
     
-    # X_queued: inflow from I, outflow to X_admitted (gated), recovery, and untreated deaths
-    dX_queued = sigma * I - (gamma_X + mu_X_untreated) * X_queued - admit_to_X_admitted
+    # X_queued: inflow from I, outflow to X_admitted (gated), recovery, untreated deaths, bg deaths
+    dX_queued = sigma * I - (gamma_X + mu_X_untreated) * X_queued - admit_to_X_admitted - bg_deaths_X_queued
     
-    # X_admitted: inflow from X_queued (gated), outflow to H_ward, recovery, and treated deaths
-    dX_admitted = admit_to_X_admitted - (gamma_X + mu_X) * X_admitted - admit_ward
+    # X_admitted: inflow from X_queued (gated), outflow to H_ward, recovery, treated deaths, bg deaths
+    dX_admitted = admit_to_X_admitted - (gamma_X + mu_X) * X_admitted - admit_ward - bg_deaths_X_admitted
     
-    dH_ward = admit_ward - (gamma_ward + effective_mu_ward) * H_ward - admit_icu
-    dH_icu = admit_icu - (gamma_icu + mu_icu) * H_icu
+    dH_ward = admit_ward - (gamma_ward + effective_mu_ward) * H_ward - admit_icu - bg_deaths_H_ward
+    dH_icu = admit_icu - (gamma_icu + mu_icu) * H_icu - bg_deaths_H_icu
     
     # Recovery from X_queued and X_admitted both contribute to R
-    dR = gamma_I * I + gamma_X * (X_queued + X_admitted) + gamma_ward * H_ward + gamma_icu * H_icu - waning_flow
+    dR = gamma_I * I + gamma_X * (X_queued + X_admitted) + gamma_ward * H_ward + gamma_icu * H_icu - waning_flow - bg_deaths_R
     
     total_deaths = (deaths_I + deaths_X_queued + deaths_X_admitted +
                     deaths_ward_baseline + deaths_ward_icu_denied + deaths_icu)
@@ -511,25 +736,26 @@ def _master_deriv(y, t, params):
     # ========================================
     # Compartment Derivatives (Vaccinated)
     # ========================================
-    dS_vax = new_vaccinations - new_exposed_vax
+    # Neonatal vaccinations enter S_vax, background deaths leave all living compartments
+    dS_vax = births_to_S_vax + new_vaccinations - new_exposed_vax - bg_deaths_S_vax
     if vax_waning_destination == 'S_vax':
         dS_vax = dS_vax + waning_flow_vax
     
-    dE_vax = new_exposed_vax - becoming_infectious_vax
-    dI_vax = becoming_infectious_vax - (gamma_I_vax + mu_I_vax + sigma_vax) * I_vax
+    dE_vax = new_exposed_vax - becoming_infectious_vax - bg_deaths_E_vax
+    dI_vax = becoming_infectious_vax - (gamma_I_vax + mu_I_vax + sigma_vax) * I_vax - bg_deaths_I_vax
     
-    # X_queued_vax: inflow from I_vax, outflow to X_admitted_vax (gated), recovery, untreated deaths
-    dX_queued_vax = sigma_vax * I_vax - (gamma_X + mu_X_untreated_vax) * X_queued_vax - admit_to_X_admitted_vax
+    # X_queued_vax: inflow from I_vax, outflow to X_admitted_vax (gated), recovery, untreated deaths, bg deaths
+    dX_queued_vax = sigma_vax * I_vax - (gamma_X + mu_X_untreated_vax) * X_queued_vax - admit_to_X_admitted_vax - bg_deaths_X_queued_vax
     
-    # X_admitted_vax: inflow from X_queued_vax (gated), outflow to H_ward_vax, recovery, treated deaths
-    dX_admitted_vax = admit_to_X_admitted_vax - (gamma_X + mu_X_vax) * X_admitted_vax - admit_ward_vax
+    # X_admitted_vax: inflow from X_queued_vax (gated), outflow to H_ward_vax, recovery, treated deaths, bg deaths
+    dX_admitted_vax = admit_to_X_admitted_vax - (gamma_X + mu_X_vax) * X_admitted_vax - admit_ward_vax - bg_deaths_X_admitted_vax
     
-    dH_ward_vax = admit_ward_vax - (gamma_ward + effective_mu_ward_vax) * H_ward_vax - admit_icu_vax
-    dH_icu_vax = admit_icu_vax - (gamma_icu + mu_icu_vax) * H_icu_vax
+    dH_ward_vax = admit_ward_vax - (gamma_ward + effective_mu_ward_vax) * H_ward_vax - admit_icu_vax - bg_deaths_H_ward_vax
+    dH_icu_vax = admit_icu_vax - (gamma_icu + mu_icu_vax) * H_icu_vax - bg_deaths_H_icu_vax
     
     # Recovery from X_queued_vax and X_admitted_vax both contribute to R_vax
     dR_vax = (gamma_I_vax * I_vax + gamma_X * (X_queued_vax + X_admitted_vax) + gamma_ward * H_ward_vax + 
-              gamma_icu * H_icu_vax - waning_flow_vax)
+              gamma_icu * H_icu_vax - waning_flow_vax - bg_deaths_R_vax)
     
     total_deaths_vax = (deaths_I_vax + deaths_X_queued_vax + deaths_X_admitted_vax +
                         deaths_ward_baseline_vax + deaths_ward_icu_denied_vax + deaths_icu_vax)
@@ -545,6 +771,8 @@ def _master_deriv(y, t, params):
     dD_vax_treated = deaths_I_vax + deaths_X_admitted_vax + deaths_ward_baseline_vax + deaths_icu_vax
     dD_vax_untreated = deaths_X_queued_vax + deaths_ward_icu_denied_vax
     d_cum_breakthrough = new_exposed_vax  # Rate of breakthrough infections
+    d_cum_births = births_total  # Rate of new births
+    d_cum_background_deaths = total_bg_deaths  # Rate of background deaths
     
     # ========================================
     # Pack Derivatives
@@ -558,7 +786,9 @@ def _master_deriv(y, t, params):
         'H_ward_vax': dH_ward_vax, 'H_icu_vax': dH_icu_vax, 'R_vax': dR_vax, 'D_vax': dD_vax,
         'D_treated': dD_treated, 'D_untreated': dD_untreated,
         'D_vax_treated': dD_vax_treated, 'D_vax_untreated': dD_vax_untreated,
-        'cum_breakthrough': d_cum_breakthrough
+        'cum_breakthrough': d_cum_breakthrough,
+        'cum_births': d_cum_births,
+        'cum_background_deaths': d_cum_background_deaths
     }
     
     return _pack_state(derivs, n_ages)
