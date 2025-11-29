@@ -2,14 +2,11 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 ## Table of Contents
 
 - [Overview](#overview)
 - [Model Description](#model-description)
-  - [Basic SEIXHRD Model](#basic-seixhrd-model)
+  - [SEIXHRD Model](#seixhrd-model)
   - [Age-Structured Extension](#age-structured-extension)
   - [Ward/ICU Separation](#wardicu-separation)
   - [Master Model](#master-model)
@@ -36,7 +33,6 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
   - [Time-Varying Scenarios](#time-varying-scenarios)
 - [Configuration](#configuration)
 - [Key Features](#key-features)
-- [Visualization](#visualization)
 - [Examples](#examples)
 - [API Reference](#api-reference)
 
@@ -44,48 +40,66 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
 
 ## Overview
 
-This project implements an extended **SEIXHRD compartmental model** designed to simulate epidemic dynamics while accounting for real-world healthcare system constraints. Unlike traditional SIR models, this implementation:
+This project implements an **SEIXHRD compartmental model** designed to simulate epidemic dynamics while accounting for real-world healthcare system constraints. Unlike traditional SIR models, this implementation:
 
 1. **Includes an Exposed (E) compartment** for realistic latent period dynamics
-2. **Models hospital capacity constraints** using smooth Hill function gating
-3. **Separates ward and ICU capacity** with distinct mortality implications
-4. **Supports age-structured populations** with heterogeneous contact patterns
-5. **Includes time-varying transmission** (seasonality, policy interventions, waning immunity)
-6. **Tracks unmet care needs** and overflow burden for policy analysis
+2. **Include a SEVERE (X) compartment** for cases needing hospitalization
+3. **Includes a HOSPITALIZED (H) compartment** for admitted patients
+4. **Separates ward and ICU capacity** with distinct mortality implications
+5. **The D (dead) compartment** tracks disease-related fatalities
+6. **Models hospital capacity constraints** using smooth Hill function gating
+7. **Supports age-structured populations** with varying contact patterns
+8. **Includes time-varying transmission** (seasonality, policy interventions, waning immunity)
+9. **Implements a Three-Factor Vaccine Model** with breakthrough infections and differential efficacy
+10. **Differential mortality tracking** based on care status (treated vs untreated)
+11. **Tracks unmet care needs** and overflow burden for policy analysis
+12. **Utilizes adaptive ODE solvers** for numerical stability and accuracy
+13. **Extensive Configurability** for disease parameters, capacities, vaccination, and interventions, etc...
 
-The model is designed for academic research and educational purposes to explore:
+The model is designed for educational purposes to explore:
 
 - Epidemic trajectory under hospital capacity limitations
 - Optimal vaccine allocation across age groups
 - Policy trade-offs (lockdowns vs. hospital surge capacity)
 - Impact of ward/ICU allocation decisions
+- Differential mortality due to care denial
+- Effects of seasonality and waning immunity on outbreaks
+- Vaccine breakthrough dynamics with varying efficacy profiles
+- And more...
 
 ---
 
 ## Model Description
 
-### Basic SEIXHRD Model
+### SEIXHRD Model
 
-The core model divides the population into seven compartments:
+The core model divides the population into **nine compartments**, with a critical distinction in the Severe (X) stage to model queuing dynamics and differential mortality:
 
 | Compartment | Description |
 |-------------|-------------|
 | **S** | Susceptible - individuals who can become infected |
 | **E** | Exposed - infected but in latent period (not yet infectious) |
 | **I** | Infected - mild or early-stage infections (infectious) |
-| **X** | Severe cases - requiring hospitalization |
-| **H** | Hospitalized - admitted patients receiving care |
+| **X_queued** | Severe cases **waiting** for ward admission (subject to untreated mortality μ_X_untreated) |
+| **X_admitted** | Severe cases **admitted** to ward stabilization (subject to treated mortality μ_X) |
+| **H_ward** | General Ward - admitted patients receiving standard care |
+| **H_icu** | ICU - critical care patients |
 | **R** | Recovered - immune individuals |
 | **D** | Dead - disease-related fatalities |
 
 **Flow diagram:**
 
 ```text
-S → E → I → X → H → R
-            ↓   ↓   ↑
-            D   D   ↑
-                ↑___↑
+S → E → I → X_queued ──(gated by g_ward)──> X_admitted → H_ward ──(gated by g_icu)──> H_icu
+            ↓                                  ↓            ↓                          ↓
+        (μ_X_untreated)                     (μ_X)      (μ_ward)                    (μ_icu)
+            ↓                                  ↓            ↓                          ↓
+        D_untreated ←──────────────────────────┴────────────┴──────────────────────> D_treated
+                                                            ↑
+                                              (also μ_ward_denied when ICU gated)
 ```
+
+**Key insight:** The split X architecture eliminates the need for "blended effective mortality rates." Patients in `X_queued` always experience the untreated rate, while those in `X_admitted` always experience the treated rate. The Hill gating function controls the **flow** between compartments, not the mortality rate within a compartment.
 
 The **Exposed (E) compartment** represents the latent period where individuals are infected but not yet infectious. This is controlled by the parameter $\alpha$ (E→I rate), where the mean latent period is $1/\alpha$ days.
 
@@ -96,6 +110,8 @@ The model supports **N age groups** (default: 3) with:
 - **Age-specific disease parameters**: Different severity, mortality, and recovery rates
 - **Contact matrix**: Heterogeneous mixing patterns between age groups
 - **Age-targeted vaccination**: Different coverage levels per age group
+- **Age-specific waning immunity**: Different rates of immunity loss
+- **Age-specific force of infection**: Calculated using the contact matrix and age-specific infectious populations
 
 Default age groups:
 
@@ -113,15 +129,19 @@ S → E → I → X → H_ward → H_icu → R or D
 
 | Compartment | Description |
 |-------------|-------------|
+| **X_queued** | Severe cases waiting for ward bed (untreated mortality applies) |
+| **X_admitted** | Severe cases that secured a ward spot, stabilizing before transfer |
 | **H_ward** | General ward beds for standard hospital care |
 | **H_icu** | ICU beds for critical care with ventilators |
 
-Key differences:
+Key features:
 
-- **Separate capacity constraints**: Each with independent Hill function gating
+- **Two-stage ward admission**: X_queued → X_admitted (gated) → H_ward (ungated transfer)
+- **Separate capacity constraints**: Ward and ICU each with independent Hill function gating
+- **X_admitted counts toward ward capacity**: `H_ward_total = H_ward + H_ward_vax + X_admitted + X_admitted_vax`
 - **Different mortality rates**: ICU mortality typically higher (sicker patients)
-- **Slower ICU recovery**: Critical care takes longer
-- **Escalation flow**: Ward patients may need ICU; ICU is downstream of ward
+- **Differential mortality tracking**: Untreated deaths (X_queued, ICU-denied) vs treated deaths
+- **Escalation flow**: Ward patients may need ICU; ICU admission is gated separately
 
 ### Master Model
 
@@ -197,7 +217,8 @@ The model implements a **Three-Factor Vaccine Model** with vaccinated compartmen
 | **S_vax** | Vaccinated susceptible - can still be infected (breakthrough) |
 | **E_vax** | Vaccinated exposed - breakthrough infection in latent period |
 | **I_vax** | Vaccinated infected - breakthrough with mild symptoms |
-| **X_vax** | Vaccinated severe - breakthrough needing hospitalization |
+| **X_queued_vax** | Vaccinated severe (queued) - breakthrough waiting for ward bed |
+| **X_admitted_vax** | Vaccinated severe (admitted) - breakthrough secured ward spot |
 | **H_ward_vax** | Vaccinated in ward - breakthrough requiring ward care |
 | **H_icu_vax** | Vaccinated in ICU - breakthrough requiring critical care |
 | **R_vax** | Vaccinated recovered - recovered from breakthrough infection |
@@ -206,13 +227,13 @@ The model implements a **Three-Factor Vaccine Model** with vaccinated compartmen
 **Flow diagram with vaccination:**
 
 ```text
-Unvaccinated:  S  → E  → I  → X  → H_ward  → H_icu  → R
-               ↓                                       ↓
-               ↓ vaccination                          D
+Unvaccinated:  S  → E  → I  → X_queued ──(gated)──> X_admitted → H_ward → H_icu → R
+               ↓                                                                   ↓
+               ↓ vaccination                                                      D
                ↓
-Vaccinated:   S_vax → E_vax → I_vax → X_vax → H_ward_vax → H_icu_vax → R_vax
-                      (reduced)  (reduced)  (reduced rates)              ↓
-                                                                      D_vax (reduced)
+Vaccinated:   S_vax → E_vax → I_vax → X_queued_vax ──(gated)──> X_admitted_vax → H_ward_vax → H_icu_vax → R_vax
+                      (reduced λ)  (reduced σ)                    (reduced μ)                              ↓
+                                                                                                       D_vax (reduced μ)
 ```
 
 #### Three-Factor Efficacy Mechanism
@@ -277,16 +298,32 @@ When `wane_to_S=True`, vaccinated recovered individuals (R_vax) return to unvacc
 
 ### Force of Infection
 
-For the age-structured model, the force of infection for age group $a$ is:
+The force of infection $\lambda_a$ acting on age group $a$ is calculated via the contact matrix $C_{ab}$ using **vectorized matrix operations**. The infectious population includes $I$, $X$ (both queued and admitted), and $H$ (ward and ICU), for both vaccinated and unvaccinated groups.
 
-$$\lambda_a = \beta_{\text{eff}} \sum_{b} C_{ab} \frac{I_b + \theta_X X_b + \theta_H (H_{\text{ward},b} + H_{\text{icu},b})}{N_b}$$
+$$\lambda_a(t) = \beta(t) \cdot \frac{\sum_b C_{ba} \cdot I_{\text{eff},b}}{N_a}$$
 
-Where:
+Where the **effective infectious contributions** from each age group $b$ are:
 
-- $\beta_{\text{eff}} = \beta \times (1 - \text{coverage}_a \times VE)$ — leaky vaccine model
-- $C_{ab}$ — contact rate from age group $a$ to $b$
-- $\theta_X, \theta_H$ — relative infectiousness of severe/hospitalized compartments
-- $N_b$ — living population in age group $b$
+$$I_{\text{eff},b} = I_b + \theta_X (X_{\text{queued},b} + X_{\text{admitted},b}) + \theta_{\text{vax}} \left[ I_{\text{vax},b} + \theta_X (X_{\text{queued,vax},b} + X_{\text{admitted,vax},b}) \right] + \theta_H H_{\text{total},b}$$
+
+With hospital contributions:
+
+$$H_{\text{total},b} = H_{\text{ward},b} + H_{\text{icu},b} + H_{\text{ward,vax},b} + H_{\text{icu,vax},b}$$
+
+**Key parameters:**
+
+| Parameter | Symbol | Description | Default |
+|-----------|--------|-------------|---------|
+| Contact matrix | $C_{ab}$ | Contacts per day from age $a$ to $b$ | Age-assortative |
+| Severe infectiousness | $\theta_X$ | Relative infectiousness of X compartments | 0.5 |
+| Hospital infectiousness | $\theta_H$ | Relative infectiousness of H compartments | 0.3 |
+| Vaccinated infectiousness | $\theta_{\text{vax}}$ | Infectiousness reduction for breakthrough cases | 0.5 |
+
+**For vaccinated susceptibles**, the force of infection is reduced by vaccine efficacy against infection:
+
+$$\lambda_{\text{vax},a}(t) = (1 - VE_{\text{infection}}) \cdot \lambda_a(t)$$
+
+> **Note on matrix orientation:** The code uses `C.T @ I_eff` (transpose), meaning $C_{ba}$ represents contacts *received by* age group $a$ *from* age group $b$. This is the standard epidemiological convention where rows represent infectees and columns represent infectors after transposition.
 
 ### Hill Function Gating
 
@@ -312,7 +349,11 @@ The Hill coefficient $n$ controls how sharply admissions decline as capacity is 
 
 ### Complete ODE System
 
-#### Basic SEIXHRD Hospital Model
+The model uses a system of Ordinary Differential Equations (ODEs) for each age group $a$. The key innovation is the **separation of severe cases into queued and admitted states** to rigorously model capacity constraints and differential mortality.
+
+#### Basic SEIXHRD Hospital Model (Simplified)
+
+For a single population without age structure:
 
 $$\frac{dS}{dt} = -\lambda S$$
 
@@ -320,22 +361,26 @@ $$\frac{dE}{dt} = \lambda S - \alpha E$$
 
 $$\frac{dI}{dt} = \alpha E - (\gamma_I + \mu_I + \sigma) I$$
 
-$$\frac{dX}{dt} = \sigma I - (\gamma_X + \mu_X) X - \eta \cdot X \cdot g(H)$$
+$$\frac{dX_{\text{queued}}}{dt} = \sigma I - (\gamma_X + \mu_{X,\text{untreated}}) X_{\text{queued}} - \eta \cdot X_{\text{queued}} \cdot g_{\text{ward}}$$
 
-$$\frac{dH}{dt} = \eta \cdot X \cdot g(H) - (\gamma_H + \mu_H) H$$
+$$\frac{dX_{\text{admitted}}}{dt} = \eta \cdot X_{\text{queued}} \cdot g_{\text{ward}} - (\gamma_X + \mu_X) X_{\text{admitted}} - \gamma_{X,\text{admit}} \cdot X_{\text{admitted}}$$
 
-$$\frac{dR}{dt} = \gamma_I I + \gamma_X X + \gamma_H H$$
+$$\frac{dH_{\text{ward}}}{dt} = \gamma_{X,\text{admit}} \cdot X_{\text{admitted}} - (\gamma_{\text{ward}} + \mu_{\text{ward}}) H_{\text{ward}} - \eta_{\text{icu}} \cdot H_{\text{ward}} \cdot g_{\text{icu}}$$
 
-$$\frac{dD}{dt} = \mu_I I + \mu_X X + \mu_H H$$
+$$\frac{dR}{dt} = \gamma_I I + \gamma_X (X_{\text{queued}} + X_{\text{admitted}}) + \gamma_{\text{ward}} H_{\text{ward}} + \gamma_{\text{icu}} H_{\text{icu}}$$
+
+$$\frac{dD}{dt} = \mu_I I + \mu_{X,\text{untreated}} X_{\text{queued}} + \mu_X X_{\text{admitted}} + \mu_{\text{ward}} H_{\text{ward}} + \mu_{\text{icu}} H_{\text{icu}}$$
 
 Where $\alpha$ is the rate of progression from Exposed to Infectious (1/latent period).
 
-#### Master Model with Ward/ICU Split
+#### Master Model with Ward/ICU Split (Full Age-Structured)
 
 For each age group $a$:
 
 **Susceptible:**
-$$\frac{dS_a}{dt} = -\lambda_a S_a + \omega_a R_a$$
+$$\frac{dS_a}{dt} = -\lambda_a S_a + \omega_a R_a - \nu_a S_a$$
+
+where $\nu_a$ is the vaccination rate.
 
 **Exposed (latent period):**
 $$\frac{dE_a}{dt} = \lambda_a S_a - \alpha_a E_a$$
@@ -343,53 +388,94 @@ $$\frac{dE_a}{dt} = \lambda_a S_a - \alpha_a E_a$$
 **Infected (mild):**
 $$\frac{dI_a}{dt} = \alpha_a E_a - (\gamma_{I,a} + \mu_{I,a} + \sigma_a) I_a$$
 
-**Severe (needs hospitalization):**
-$$\frac{dX_a}{dt} = \sigma_a I_a - (\gamma_{X,a} + \mu_{X,\text{eff}}) X_a - \text{admit}_{\text{ward},a}$$
+**Severe Queued (waiting for ward bed):**
+
+Patients enter `X_queued` when they become severe. They compete for ward admission via the gating function $g_{\text{ward}}$. While waiting, they experience **untreated mortality** $\mu_{X,\text{untreated}}$.
+
+$$\frac{dX_{\text{queued},a}}{dt} = \sigma_a I_a - (\gamma_{X,a} + \mu_{X,\text{untreated},a}) X_{\text{queued},a} - \text{admit}_{\text{X},a}$$
+
+where:
+$$\text{admit}_{\text{X},a} = \eta_a \cdot X_{\text{queued},a} \cdot g_{\text{ward}}(H_{\text{ward,total}})$$
+
+**Severe Admitted (secured ward spot, stabilizing):**
+
+Patients who cross the capacity gate enter `X_admitted`. They receive care (treated mortality $\mu_X$) and transfer to the general ward at rate $\gamma_{X,\text{admit}}$.
+
+$$\frac{dX_{\text{admitted},a}}{dt} = \text{admit}_{\text{X},a} - (\gamma_{X,a} + \mu_{X,a}) X_{\text{admitted},a} - \text{transfer}_{\text{ward},a}$$
+
+where:
+$$\text{transfer}_{\text{ward},a} = \gamma_{X,\text{admit}} \cdot X_{\text{admitted},a}$$
+
+> **Note:** Transfer from `X_admitted` to `H_ward` is **not gated**—once a patient secures a spot in `X_admitted`, their progression to the ward is guaranteed. The parameter $\gamma_{X,\text{admit}} \approx 0.5$ day$^{-1}$ represents a ~2 day administrative/stabilization period.
 
 **General Ward:**
-$$\frac{dH_{\text{ward},a}}{dt} = \text{admit}_{\text{ward},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward},\text{eff}}) H_{\text{ward},a} - \text{admit}_{\text{icu},a}$$
+
+Ward patients may recover, die, or require ICU escalation. ICU admission is gated by $g_{\text{icu}}$.
+
+$$\frac{dH_{\text{ward},a}}{dt} = \text{transfer}_{\text{ward},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward,eff},a}) H_{\text{ward},a} - \text{admit}_{\text{icu},a}$$
+
+where:
+$$\text{admit}_{\text{icu},a} = \eta_{\text{icu},a} \cdot H_{\text{ward},a} \cdot g_{\text{icu}}(H_{\text{icu,total}})$$
 
 **ICU:**
 $$\frac{dH_{\text{icu},a}}{dt} = \text{admit}_{\text{icu},a} - (\gamma_{\text{icu},a} + \mu_{\text{icu},a}) H_{\text{icu},a}$$
 
 **Recovered:**
-$$\frac{dR_a}{dt} = \gamma_{I,a} I_a + \gamma_{X,a} X_a + \gamma_{\text{ward},a} H_{\text{ward},a} + \gamma_{\text{icu},a} H_{\text{icu},a} - \omega_a R_a$$
+$$\frac{dR_a}{dt} = \gamma_{I,a} I_a + \gamma_{X,a} (X_{\text{queued},a} + X_{\text{admitted},a}) + \gamma_{\text{ward},a} H_{\text{ward},a} + \gamma_{\text{icu},a} H_{\text{icu},a} - \omega_a R_a$$
 
 **Deaths:**
-$$\frac{dD_a}{dt} = \mu_{I,a} I_a + \mu_{X,\text{eff}} X_a + \mu_{\text{ward},\text{eff}} H_{\text{ward},a} + \mu_{\text{icu},a} H_{\text{icu},a}$$
+$$\frac{dD_a}{dt} = \mu_{I,a} I_a + \mu_{X,\text{untreated},a} X_{\text{queued},a} + \mu_{X,a} X_{\text{admitted},a} + \mu_{\text{ward,eff},a} H_{\text{ward},a} + \mu_{\text{icu},a} H_{\text{icu},a}$$
 
-Where the admission flows are:
+#### Ward Capacity Calculation
 
-$$\text{admit}_{\text{ward},a} = \eta_a \cdot X_a \cdot g_{\text{ward}}(H_{\text{ward,total}})$$
+The ward gating function uses a combined occupancy that includes patients in `X_admitted` (who have secured a ward spot but haven't transferred yet):
 
-$$\text{admit}_{\text{icu},a} = \eta_{\text{icu},a} \cdot H_{\text{ward},a} \cdot g_{\text{icu}}(H_{\text{icu,total}})$$
+$$H_{\text{ward,total}} = \sum_a \left( H_{\text{ward},a} + H_{\text{ward,vax},a} + X_{\text{admitted},a} + X_{\text{admitted,vax},a} \right)$$
+
+This "closes the ghost ward gap"—ensuring that patients stabilizing in `X_admitted` are counted toward capacity.
 
 ### Differential Mortality Equations
 
-The effective mortality rates account for capacity-constrained care:
+The split-X architecture **eliminates the need for blended effective mortality rates**. Instead, patients in different compartments simply experience different mortality rates:
 
-**X compartment (severe cases):**
-$$\mu_{X,\text{eff}} = \mu_X \cdot g_{\text{ward}} + \mu_{X,\text{untreated}} \cdot (1 - g_{\text{ward}})$$
+| Compartment | Mortality Rate | Care Status |
+|-------------|----------------|-------------|
+| `X_queued` | $\mu_{X,\text{untreated}}$ | Waiting for bed (no care) |
+| `X_admitted` | $\mu_X$ | Secured bed (receiving care) |
+| `H_ward` (baseline) | $\mu_{\text{ward}}$ | Ward care |
+| `H_ward` (ICU denied) | $\mu_{\text{ward,denied}}$ | Needed ICU but denied |
+| `H_icu` | $\mu_{\text{icu}}$ | ICU care |
 
-Where:
-$$\mu_{X,\text{untreated}} = \mu_X \times m_{\text{X,untreated}}$$
+**Untreated mortality multipliers** (age-specific):
 
-The multiplier $m_{\text{X,untreated}}$ is age-specific:
+| Age Group | $\mu_{X,\text{untreated}}$ Multiplier | $\mu_{\text{ward,denied}}$ Multiplier |
+|-----------|--------------------------------------|---------------------------------------|
+| Young | 1.5× | 1.3× |
+| Middle | 2.0× | 1.5× |
+| Elderly | 3.0× | 2.0× |
 
-| Age Group | Multiplier | Interpretation |
-|-----------|------------|----------------|
-| Young | 1.5× | Better compensatory reserve |
-| Middle | 2.0× | Baseline |
-| Elderly | 3.0× | Most vulnerable without care |
+#### Ward Effective Mortality
 
-**Ward patients denied ICU:**
+For ward patients, effective mortality increases when ICU is constrained. The fraction of ICU-needing patients who are denied care is $(1 - g_{\text{icu}})$:
+
 $$\mu_{\text{ward,eff}} = \mu_{\text{ward}} + (\mu_{\text{ward,denied}} - \mu_{\text{ward}}) \cdot \eta_{\text{icu}} \cdot (1 - g_{\text{icu}})$$
 
-**Tracking treated vs untreated deaths:**
+where $\eta_{\text{icu}}$ is the rate at which ward patients need ICU escalation.
 
-$$\frac{dD_{\text{treated}}}{dt} = \mu_I I + \mu_X \cdot g_{\text{ward}} \cdot X + \mu_{\text{ward}} H_{\text{ward}} + \mu_{\text{icu}} H_{\text{icu}}$$
+#### Death Accumulator Equations
 
-$$\frac{dD_{\text{untreated}}}{dt} = \mu_{X,\text{untreated}} \cdot (1 - g_{\text{ward}}) \cdot X + (\mu_{\text{ward,denied}} - \mu_{\text{ward}}) \cdot \eta_{\text{icu}} \cdot (1 - g_{\text{icu}}) \cdot H_{\text{ward}}$$
+The model tracks deaths by care status using accumulator variables integrated alongside the main state:
+
+**Treated deaths** (received appropriate care):
+$$\frac{dD_{\text{treated}}}{dt} = \sum_a \left[ \mu_{I,a} I_a + \mu_{X,a} X_{\text{admitted},a} + \mu_{\text{ward},a} H_{\text{ward},a} + \mu_{\text{icu},a} H_{\text{icu},a} \right]$$
+
+**Untreated deaths** (denied care due to capacity):
+$$\frac{dD_{\text{untreated}}}{dt} = \sum_a \left[ \mu_{X,\text{untreated},a} X_{\text{queued},a} + (\mu_{\text{ward,denied},a} - \mu_{\text{ward},a}) \cdot \eta_{\text{icu},a} \cdot (1 - g_{\text{icu}}) \cdot H_{\text{ward},a} \right]$$
+
+> **Key insight:** Deaths in `X_queued` are *always* counted as untreated (these patients never secured a bed). Deaths in `X_admitted`, `H_ward`, and `H_icu` are counted as treated. The excess mortality from ICU denial (the $(\mu_{\text{ward,denied}} - \mu_{\text{ward}})$ term) is counted as untreated.
+
+**Preventable Mortality Metric:**
+$$\text{Preventable Mortality \%} = \frac{D_{\text{untreated}}}{D_{\text{total}}} \times 100$$
 
 ### Time-Varying Transmission Equations
 
@@ -452,6 +538,7 @@ results = simulate_master_hospital_model(
 ```
 
 Available `solver_method` options:
+
 - `'LSODA'` (default) - Automatic stiff/non-stiff switching
 - `'BDF'` - Backward Differentiation Formula for stiff problems
 - `'Radau'` - Implicit Runge-Kutta for stiff problems
@@ -491,11 +578,20 @@ If any compartment value falls below the threshold, a warning is issued. All com
 
 #### State Vector Packing
 
-The 16 compartments × N age groups are packed into a single 1D state vector:
+The **18 compartments** × N age groups are packed into a single 1D state vector, plus **5 tracked accumulators** for differential mortality:
 
 ```python
-# State order: S, E, I, X, H_ward, H_icu, R, D, S_vax, E_vax, I_vax, X_vax, H_ward_vax, H_icu_vax, R_vax, D_vax
-# For 3 age groups: [S_0, S_1, S_2, E_0, E_1, E_2, ..., D_vax_0, D_vax_1, D_vax_2]
+# Main compartments (18 per age group):
+STATE_ORDER = [
+    'S', 'E', 'I', 'X_queued', 'X_admitted', 'H_ward', 'H_icu', 'R', 'D',
+    'S_vax', 'E_vax', 'I_vax', 'X_queued_vax', 'X_admitted_vax', 'H_ward_vax', 'H_icu_vax', 'R_vax', 'D_vax'
+]
+
+# Tracked accumulators (5 total, not per-age):
+TRACKED_ORDER = ['D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated', 'cum_breakthrough']
+
+# For 3 age groups: 18 * 3 + 5 = 59 state variables
+# Layout: [S_0, S_1, S_2, E_0, E_1, E_2, ..., D_vax_0, D_vax_1, D_vax_2, D_treated, D_untreated, ...]
 ```
 
 This enables efficient vectorized computation of the force of infection:
@@ -503,6 +599,7 @@ This enables efficient vectorized computation of the force of infection:
 $$\lambda = \beta_{\text{eff}}(t) \cdot C \cdot \frac{\mathbf{I}_{\text{infectious}}}{\mathbf{N}}$$
 
 Where:
+
 - $C$ is the contact matrix
 - $\mathbf{I}_{\text{infectious}}$ includes contributions from I, X, H compartments (both vaccinated and unvaccinated)
 - The matrix multiplication is fully vectorized using NumPy
@@ -520,6 +617,7 @@ $$\frac{dS_a}{dt} = -\lambda_a S_a - v_a S_a + \omega_a R_a$$
 $$\frac{dS_{\text{vax},a}}{dt} = v_a S_a - \lambda_{\text{vax},a} S_{\text{vax},a} + \omega_{\text{vax},a} R_{\text{vax},a} \cdot (1 - w_{S})$$
 
 Where:
+
 - $v_a$ — age-specific vaccination rate
 - $w_S$ — wane_to_S flag (1 = wane to S, 0 = wane to S_vax)
 
@@ -541,7 +639,11 @@ VE_severe reduces the rate at which vaccinated infected individuals progress to 
 
 $$\sigma_{\text{vax},a} = (1 - VE_S) \cdot \sigma_a$$
 
-$$\frac{dX_{\text{vax},a}}{dt} = \sigma_{\text{vax},a} I_{\text{vax},a} - (\gamma_{X,a} + \mu_{X,\text{vax,eff}}) X_{\text{vax},a} - \text{admit}_{\text{ward,vax},a}$$
+**Compensatory Recovery Rate:** To preserve the total exit rate from compartment I (ensuring vaccinated individuals don't remain infectious longer), the recovery rate is increased:
+
+$$\gamma_{I,\text{vax},a} = \gamma_{I,a} + (\sigma_a - \sigma_{\text{vax},a})$$
+
+This ensures that the reduced flow to severe disease is compensated by increased recovery, maintaining epidemiological consistency.
 
 #### Reduced Mortality
 
@@ -554,42 +656,54 @@ $$\mu_{\text{icu,vax}} = (1 - VE_D) \cdot \mu_{\text{icu}}$$
 
 #### Vaccinated Compartment ODEs
 
+The vaccinated pathway mirrors the unvaccinated pathway, including the split severe compartments.
+
 **Vaccinated Exposed:**
 $$\frac{dE_{\text{vax},a}}{dt} = \lambda_{\text{vax},a} S_{\text{vax},a} - \alpha_a E_{\text{vax},a}$$
 
 **Vaccinated Infected (mild):**
-$$\frac{dI_{\text{vax},a}}{dt} = \alpha_a E_{\text{vax},a} - (\gamma_{I,a} + \mu_{I,\text{vax}} + \sigma_{\text{vax},a}) I_{\text{vax},a}$$
+$$\frac{dI_{\text{vax},a}}{dt} = \alpha_a E_{\text{vax},a} - (\gamma_{I,\text{vax},a} + \mu_{I,\text{vax}} + \sigma_{\text{vax},a}) I_{\text{vax},a}$$
 
-**Vaccinated Severe:**
-$$\frac{dX_{\text{vax},a}}{dt} = \sigma_{\text{vax},a} I_{\text{vax},a} - (\gamma_{X,a} + \mu_{X,\text{vax,eff}}) X_{\text{vax},a} - \text{admit}_{\text{ward,vax},a}$$
+Note: $\gamma_{I,\text{vax}}$ is accelerated (see compensatory recovery rate above).
+
+**Vaccinated Severe Queued:**
+$$\frac{dX_{\text{queued,vax},a}}{dt} = \sigma_{\text{vax},a} I_{\text{vax},a} - (\gamma_{X,a} + \mu_{X,\text{untreated,vax}}) X_{\text{queued,vax},a} - \text{admit}_{\text{X,vax},a}$$
+
+**Vaccinated Severe Admitted:**
+$$\frac{dX_{\text{admitted,vax},a}}{dt} = \text{admit}_{\text{X,vax},a} - (\gamma_{X,a} + \mu_{X,\text{vax}}) X_{\text{admitted,vax},a} - \text{transfer}_{\text{ward,vax},a}$$
 
 **Vaccinated Ward:**
-$$\frac{dH_{\text{ward,vax},a}}{dt} = \text{admit}_{\text{ward,vax},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward,vax,eff}}) H_{\text{ward,vax},a} - \text{admit}_{\text{icu,vax},a}$$
+$$\frac{dH_{\text{ward,vax},a}}{dt} = \text{transfer}_{\text{ward,vax},a} - (\gamma_{\text{ward},a} + \mu_{\text{ward,vax,eff}}) H_{\text{ward,vax},a} - \text{admit}_{\text{icu,vax},a}$$
 
 **Vaccinated ICU:**
 $$\frac{dH_{\text{icu,vax},a}}{dt} = \text{admit}_{\text{icu,vax},a} - (\gamma_{\text{icu},a} + \mu_{\text{icu,vax}}) H_{\text{icu,vax},a}$$
 
 **Vaccinated Recovered:**
-$$\frac{dR_{\text{vax},a}}{dt} = \gamma_{I,a} I_{\text{vax},a} + \gamma_{X,a} X_{\text{vax},a} + \gamma_{\text{ward},a} H_{\text{ward,vax},a} + \gamma_{\text{icu},a} H_{\text{icu,vax},a} - \omega_{\text{vax},a} R_{\text{vax},a}$$
+$$\frac{dR_{\text{vax},a}}{dt} = \gamma_{I,\text{vax},a} I_{\text{vax},a} + \gamma_{X,a} (X_{\text{queued,vax},a} + X_{\text{admitted,vax},a}) + \gamma_{\text{ward},a} H_{\text{ward,vax},a} + \gamma_{\text{icu},a} H_{\text{icu,vax},a} - \omega_a R_{\text{vax},a}$$
 
 **Vaccinated Deaths:**
-$$\frac{dD_{\text{vax},a}}{dt} = \mu_{I,\text{vax}} I_{\text{vax},a} + \mu_{X,\text{vax,eff}} X_{\text{vax},a} + \mu_{\text{ward,vax,eff}} H_{\text{ward,vax},a} + \mu_{\text{icu,vax}} H_{\text{icu,vax},a}$$
+$$\frac{dD_{\text{vax},a}}{dt} = \mu_{I,\text{vax}} I_{\text{vax},a} + \mu_{X,\text{untreated,vax}} X_{\text{queued,vax},a} + \mu_{X,\text{vax}} X_{\text{admitted,vax},a} + \mu_{\text{ward,vax,eff}} H_{\text{ward,vax},a} + \mu_{\text{icu,vax}} H_{\text{icu,vax},a}$$
 
-#### Vaccine Waning
+#### Hybrid Immunity Waning
 
-When vaccine immunity wanes, R_vax individuals return to either S (if wane_to_S=True) or S_vax (if wane_to_S=False):
+Individuals in R_vax have "hybrid immunity" (vaccination + natural infection). The model wanes R_vax at the **natural immunity rate** $\omega_a$ (not a separate $\omega_{\text{vax}}$), reflecting that hybrid immunity duration is driven by infection-induced immunity:
 
-$$\frac{dR_{\text{vax},a}}{dt} = \text{(recoveries)} - \omega_{\text{vax},a} R_{\text{vax},a}$$
+$$\frac{dR_{\text{vax},a}}{dt} = \text{(recoveries)} - \omega_a R_{\text{vax},a}$$
 
-$$\frac{dS_a}{dt} += \omega_{\text{vax},a} R_{\text{vax},a} \cdot w_S$$
+The destination depends on the `waning_destination` parameter:
 
-$$\frac{dS_{\text{vax},a}}{dt} += \omega_{\text{vax},a} R_{\text{vax},a} \cdot (1 - w_S)$$
+- If `waning_destination = 'S'`: R_vax → S (lose all protection)
+- If `waning_destination = 'S_vax'`: R_vax → S_vax (retain vaccine-induced protection)
+
+$$\frac{dS_a}{dt} += \omega_a R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S]$$
+$$\frac{dS_{\text{vax},a}}{dt} += \omega_a R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S_{\text{vax}}]$$
 
 #### Population Conservation
 
-With vaccination, the total population across all 16 compartments is conserved:
+With vaccination and split-X compartments, the total population across all **18 compartments** is conserved:
 
-$$N = \sum_a (S_a + E_a + I_a + X_a + H_{\text{ward},a} + H_{\text{icu},a} + R_a + D_a + S_{\text{vax},a} + E_{\text{vax},a} + I_{\text{vax},a} + X_{\text{vax},a} + H_{\text{ward,vax},a} + H_{\text{icu,vax},a} + R_{\text{vax},a} + D_{\text{vax},a})$$
+$$N = \sum_a \big( S_a + E_a + I_a + X_{\text{queued},a} + X_{\text{admitted},a} + H_{\text{ward},a} + H_{\text{icu},a} + R_a + D_a$$
+$$\quad + S_{\text{vax},a} + E_{\text{vax},a} + I_{\text{vax},a} + X_{\text{queued,vax},a} + X_{\text{admitted,vax},a} + H_{\text{ward,vax},a} + H_{\text{icu,vax},a} + R_{\text{vax},a} + D_{\text{vax},a} \big)$$
 
 ---
 
@@ -1034,7 +1148,7 @@ results = simulate_master_hospital_model(
 )
 ```
 
-#### Vaccine Waning
+#### Immunity Waning Example
 
 ```python
 # Vaccine immunity wanes over time
@@ -1293,11 +1407,21 @@ DEFAULT_SIM_PARAMS = {
     'Tmax': 200,          # Simulation duration (days)
     'time_step': 0.1,     # Euler step size
     'hill_coef': 4,       # Hill coefficient
-    'theta_X': 0.5,       # Relative infectiousness of X
-    'theta_H': 0.3,       # Relative infectiousness of H
-    'VE': 0.7             # Vaccine efficacy
+    'theta_X': 0.5,       # Relative infectiousness of X compartments
+    'theta_H': 0.3,       # Relative infectiousness of H compartments
+    'theta_vax': 0.5,     # Relative infectiousness of vaccinated individuals
+    'VE': 0.7             # Legacy vaccine efficacy (use Three-Factor model instead)
 }
 ```
+
+#### Split-X Architecture Parameters
+
+| Parameter | Symbol | Description | Default |
+|-----------|--------|-------------|---------|
+| `gamma_X_admit` | $\gamma_{X,\text{admit}}$ | Rate of transfer from X_admitted to H_ward | 0.5 day⁻¹ (~2 day wait) |
+| `mu_X` | $\mu_X$ | Treated mortality in X_admitted | Age-specific |
+| `mu_X_untreated` | $\mu_{X,\text{untreated}}$ | Untreated mortality in X_queued | `mu_X × multiplier` |
+| `mu_ward_denied_icu` | $\mu_{\text{ward,denied}}$ | Ward mortality when ICU denied | Age-specific |
 
 #### Age-Specific Disease Parameters (Empirical/COVID-calibrated)
 
@@ -1305,23 +1429,41 @@ DEFAULT_SIM_PARAMS = {
 |-----------|--------------|----------------|---------------|
 | `alpha` (E→I) | 0.2 | 0.2 | 0.18 |
 | `sigma` (→ severe) | 0.02 | 0.08 | 0.15 |
-| `eta` (→ ward) | 0.05 | 0.15 | 0.35 |
+| `eta` (→ ward admission) | 0.05 | 0.15 | 0.35 |
 | `eta_icu` (→ ICU) | 0.02 | 0.10 | 0.25 |
-| `mu_X` (severe mortality) | 0.002 | 0.008 | 0.025 |
+| `gamma_X` (recovery from X) | 0.2 | 0.15 | 0.10 |
+| `gamma_X_admit` (X_admitted → H_ward) | 0.5 | 0.5 | 0.5 |
+| `mu_X` (treated severe mortality) | 0.002 | 0.008 | 0.025 |
+| `mu_X_untreated` (untreated severe) | 0.006 | 0.024 | 0.10 |
 | `mu_ward` | 0.001 | 0.005 | 0.015 |
+| `mu_ward_denied_icu` | 0.02 | 0.06 | 0.12 |
 | `mu_icu` | 0.005 | 0.02 | 0.04 |
 
 #### Differential Mortality Parameters
 
 ```python
 DIFFERENTIAL_MORTALITY_PARAMS = {
-    'mu_X_untreated_multiplier': 2.0,            # Multiplier when hospital denied
-    'mu_ward_denied_icu_multiplier': 1.5,        # Multiplier when ICU denied
-    'mu_X_untreated_multiplier_young': 1.5,      # Age-specific overrides
+    'mu_X_untreated_multiplier': 2.0,            # Baseline multiplier when hospital denied
+    'mu_ward_denied_icu_multiplier': 1.5,        # Baseline multiplier when ICU denied
+    # Age-specific overrides (elderly are most vulnerable when denied care):
+    'mu_X_untreated_multiplier_young': 1.5,
     'mu_X_untreated_multiplier_middle': 2.0,
     'mu_X_untreated_multiplier_elderly': 3.0,
+    'mu_ward_denied_icu_multiplier_young': 1.3,
+    'mu_ward_denied_icu_multiplier_middle': 1.5,
+    'mu_ward_denied_icu_multiplier_elderly': 2.0,
 }
 ```
+
+#### Three-Factor Vaccine Efficacy Parameters
+
+| Parameter | Symbol | Description | Default (mRNA) |
+|-----------|--------|-------------|----------------|
+| `VE_infection` | $VE_I$ | Efficacy against infection | 0.80 |
+| `VE_severe` | $VE_S$ | Efficacy against severe disease | 0.90 |
+| `VE_death` | $VE_D$ | Efficacy against death | 0.95 |
+| `theta_vax` | $\theta_{\text{vax}}$ | Relative infectiousness of breakthrough | 0.30 |
+| `omega_vax` | $\omega_{\text{vax}}$ | Vaccine immunity waning rate (S_vax) | 0.002 day⁻¹ |
 
 ---
 
@@ -1353,21 +1495,6 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 - **Optimal allocation**: Grid search for best vaccine distribution
 - **ICU capacity sweep**: Find optimal ward/ICU bed allocation
 - **Scenario comparison**: Test different capacity configurations
-
----
-
-## Visualization
-
-The `plotting_utils` module provides comprehensive visualizations:
-
-| Function | Description |
-|----------|-------------|
-| `plot_hospital_simulation_stats()` | 2×2 grid for basic model |
-| `plot_age_structured_results()` | 2×3 grid for age-structured model |
-| `plot_age_structured_icu_results()` | 3×3 comprehensive grid for age+ICU |
-| `plot_strategy_comparison()` | Bar charts comparing vaccination strategies |
-| `plot_optimal_allocation()` | Heatmaps for vaccine allocation optimization |
-| `plot_time_varying_results()` | Time-varying transmission visualization |
 
 ---
 
@@ -1561,16 +1688,6 @@ Create a custom scenario configuration dictionary.
 
 ---
 
-## Limitations
-
-1. **Euler method**: Simple but can be unstable for very large time steps
-2. **Deterministic model**: No stochastic variation (suitable for large populations)
-3. **No spatial structure**: Assumes well-mixed population within age groups
-4. **Simplified vaccine model**: Leaky model only; no all-or-nothing protection
-5. **No healthcare worker dynamics**: Ignores staff shortages during surges
-
----
-
 ## Future Extensions
 
 - Stochastic simulation using Gillespie algorithm
@@ -1581,22 +1698,3 @@ Create a custom scenario configuration dictionary.
 - Hospitalization duration distributions
 
 ---
-
-## Citation
-
-If you use this model in your research, please cite:
-
-```bibtex
-@software{hospital_sixhrd_model,
-  author = {Hunter, Jason},
-  title = {Hospital Capacity SIXHRD Epidemic Model},
-  year = {2025},
-  url = {https://github.com/JasonHunter95/hospital-model}
-}
-```
-
----
-
-## License
-
-MIT License - see LICENSE file for details.
