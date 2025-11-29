@@ -152,6 +152,7 @@ def simulate_master_hospital_model(
         - 'omega_vax': vaccine waning rate (1/days)
         - 'omega_vax_by_age': age-specific waning rates [young, middle, elderly]
         - 'waning_destination': 'S' (fully susceptible) or 'S_vax' (partial protection)
+        - 'wane_to_S': boolean alias for waning_destination (True='S', False='S_vax')
     age_pops : list
         Population size for each age group. Required.
     theta_X : float, optional
@@ -360,7 +361,14 @@ def simulate_master_hospital_model(
         omega_vax = [0.0] * n_ages
         vax_waning_destination = 'S'
     else:
-        vax_waning_destination = vaccine_waning_params.get('waning_destination', 'S')
+        # Support both 'waning_destination' and legacy 'wane_to_S' parameter names
+        if 'waning_destination' in vaccine_waning_params:
+            vax_waning_destination = vaccine_waning_params['waning_destination']
+        elif 'wane_to_S' in vaccine_waning_params:
+            # Translate boolean wane_to_S to string waning_destination
+            vax_waning_destination = 'S' if vaccine_waning_params['wane_to_S'] else 'S_vax'
+        else:
+            vax_waning_destination = 'S'
         if 'omega_vax' in vaccine_waning_params:
             omega_vax = [vaccine_waning_params['omega_vax']] * n_ages
         elif 'omega_vax_by_age' in vaccine_waning_params and vaccine_waning_params['omega_vax_by_age'] is not None:

@@ -25,15 +25,11 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
 - [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
 - [Usage](#usage)
-  - [Basic Simulation](#basic-simulation)
-  - [Age-Structured Model](#age-structured-model)
-  - [Ward/ICU Model](#wardicu-model-usage)
   - [Master Model](#master-model-usage)
   - [Vaccination Scenarios](#vaccination-usage)
   - [Time-Varying Scenarios](#time-varying-scenarios)
 - [Configuration](#configuration)
 - [Key Features](#key-features)
-- [Examples](#examples)
 - [API Reference](#api-reference)
 
 ---
@@ -200,7 +196,7 @@ This represents the percentage of deaths attributable to capacity constraints—
 
 ### Time-Varying Extensions
 
-The `time_varying_models` module supports:
+The `master_hospital_model` and `time_varying_helpers` modules support:
 
 1. **Seasonal transmission**: Periodic variation in transmission rate
 2. **Policy interventions**: Step functions reducing transmission during lockdowns
@@ -269,7 +265,7 @@ Pre-configured vaccine profiles are available:
 | `minimal` | 0.20 | 0.40 | 0.50 | Minimal protection scenario |
 
 ```python
-from config import get_vaccine_profile, list_vaccine_profiles
+from config_helpers import get_vaccine_profile, list_vaccine_profiles
 
 # List available profiles
 print(list_vaccine_profiles())
@@ -860,7 +856,7 @@ python -c "import numpy; import matplotlib; import pytest; print('All dependenci
 # Run full test suite
 python -m pytest tests/ -v --tb=short
 
-# Expected output: 229 passed
+# Expected output: 232 passed
 ```
 
 ### Code Quality Checks
@@ -878,21 +874,20 @@ Before submitting changes, ensure:
 ```text
 hospital-model/
 ├── config.py                  # Scenario bundles, presets, and helper functions
+├── config_helpers.py          # Helper functions for configs (vaccine profiles, presets)
 ├── master_hospital_model.py   # Unified master model with all features
-├── hospital_models.py         # Core simulation functions
-├── simulation_helpers.py      # Helper functions for sweeps and comparisons
-├── plotting_utils.py          # Visualization functions
+├── simulation_helpers.py      # ODE derivatives and helper functions
 ├── time_varying_helpers.py    # Time-varying transmission utilities
-├── hospital.ipynb             # Interactive notebook with examples
-├── master_model_experiments.ipynb  # Master model experiments
-├── tests/                     # Comprehensive test suite (189 tests)
+├── master_model_experiments.ipynb  # Master model experiments notebook
+├── tests/                     # Comprehensive test suite (232 tests)
 │   ├── __init__.py            # Test package marker
 │   ├── conftest.py            # Shared pytest fixtures
 │   ├── test_helper_functions.py       # Unit tests for helper functions
 │   ├── test_master_model_integration.py  # Integration tests for main simulation
 │   ├── test_time_varying_behavior.py  # Time-varying dynamics tests
 │   ├── test_edge_cases.py     # Boundary condition tests
-│   └── test_differential_mortality.py  # D_treated/D_untreated tests
+│   ├── test_differential_mortality.py  # D_treated/D_untreated tests
+│   └── test_vaccination_compartments.py # Vaccination compartment tests
 └── README.md                  # This file
 ```
 
@@ -901,109 +896,23 @@ hospital-model/
 | File | Purpose |
 |------|---------|
 | `config.py` | Complete scenario bundles, transmission/healthcare/intervention presets, vaccination strategies, and helper functions (`get_scenario_params()`, `list_scenarios()`, etc.) |
+| `config_helpers.py` | Helper functions for configuration: `get_vaccine_profile()`, `create_custom_scenario()`, etc. |
 | `master_hospital_model.py` | Unified simulation: `simulate_master_hospital_model()` combining age structure, ward/ICU, seasonality, interventions, waning immunity, and differential mortality |
-| `hospital_models.py` | Core simulation functions: `simulate_hospital_model()`, `simulate_age_structured_model()`, `simulate_age_structured_model_icu()` |
-| `simulation_helpers.py` | Reusable analysis functions: `compare_vaccination_strategies()`, `optimize_vaccine_allocation()`, `sweep_icu_capacity()` |
-| `plotting_utils.py` | Comprehensive visualization: `plot_hospital_simulation_stats()`, `plot_age_structured_results()`, `plot_age_structured_icu_results()` |
-| `time_varying_helpers.py` | Time-varying transmission utilities |
+| `simulation_helpers.py` | ODE derivatives (`ode_derivatives_with_vax_and_waning`), Hill gating, seasonal forcing, and policy multiplier utilities |
+| `time_varying_helpers.py` | Time-varying transmission utilities: `seasonal_forcing()`, `policy_multiplier()`, `waning_immunity_loss()` |
 | `tests/conftest.py` | Shared pytest fixtures for all test files |
-| `tests/test_*.py` | Test modules covering helpers, integration, edge cases, and mortality tracking |
+| `tests/test_*.py` | Test modules covering helpers, integration, edge cases, mortality tracking, and vaccination |
 
 ---
 
 ## Usage
-
-### Basic Simulation
-
-```python
-from hospital_models import simulate_basic_hospital_model
-from plotting_utils import plot_hospital_simulation_stats
-
-# Run basic SIXHRD simulation
-times, S, I, X, H, R, D, overflow, cum_overflow, cum_unmet, unmet = \
-    simulate_basic_hospital_model(
-        beta=0.3,           # Transmission rate
-        sigma=0.2,          # Progression to severe
-        eta=0.3,            # Hospitalization need rate
-        gamma_I=0.1,        # Recovery from I
-        mu_I=0.01,          # Mortality in I
-        gamma_X=0.15,       # Recovery from X
-        mu_X=0.05,          # Mortality in X
-        gamma_H=0.2,        # Recovery from H
-        mu_H=0.02,          # Mortality in H
-        theta_X=0.5,        # Relative infectiousness of X
-        theta_H=0.3,        # Relative infectiousness of H
-        hosp_capacity=100,  # Hospital bed capacity
-        hill_coef=4,        # Hill coefficient
-        coverage=0.1,       # Vaccine coverage
-        VE=0.7,             # Vaccine efficacy
-        N=10000,            # Population size
-        Tmax=200            # Simulation duration (days)
-    )
-
-# Visualize results
-plot_hospital_simulation_stats(
-    times, S, I, X, H, R, D, overflow, cum_overflow, cum_unmet,
-    hosp_capacity=100, N=10000
-)
-```
-
-### Age-Structured Model
-
-```python
-from hospital_models import simulate_age_structured_hospital_model
-from plotting_utils import plot_age_structured_results
-import config
-
-# Run age-structured simulation with config defaults
-results = simulate_age_structured_hospital_model(
-    beta=0.3,
-    age_params=config.AGE_PARAMS_DEFAULT,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    hosp_capacity=100,
-    hill_coef=4,
-    coverage=[0.1, 0.2, 0.7],  # Age-specific vaccination
-    VE=0.7,
-    age_pops=config.AGE_POPS_DEFAULT
-)
-
-# Visualize
-plot_age_structured_results(results, hosp_capacity=100,
-                           age_labels=config.AGE_LABELS_SHORT)
-```
-
-### Ward/ICU Model Usage
-
-```python
-from hospital_models import simulate_age_structured_hospital_model_with_icu_ward_split
-from plotting_utils import plot_age_structured_icu_results
-import config
-
-# Run ward/ICU separated model
-results = simulate_age_structured_hospital_model_with_icu_ward_split(
-    beta=0.4,
-    age_params=config.AGE_PARAMS_DEFAULT,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    ward_capacity=80,           # 80 general ward beds
-    icu_capacity=20,            # 20 ICU beds
-    hill_coef_ward=4,
-    hill_coef_icu=4,
-    coverage=[0.1, 0.2, 0.7],   # Elderly priority
-    VE=0.7,
-    age_pops=config.AGE_POPS_DEFAULT
-)
-
-# Visualize with comprehensive 3x3 grid
-plot_age_structured_icu_results(results)
-```
 
 ### Master Model Usage
 
 The Master Model combines all features for comprehensive pandemic simulations:
 
 ```python
-from master_experiments.master_hospital_model import simulate_master_hospital_model
-from plotting_utils import plot_age_structured_icu_results
+from master_hospital_model import simulate_master_hospital_model
 import config
 
 # Full-featured simulation with all extensions
@@ -1105,7 +1014,7 @@ print(f"Vaccinated deaths: {sum(results['D_vax'][a][-1] for a in range(3)):.0f}"
 #### Using Vaccine Profiles
 
 ```python
-from config import get_vaccine_profile, list_vaccine_profiles, describe_vaccine_profile
+from config_helpers import get_vaccine_profile, list_vaccine_profiles, describe_vaccine_profile
 
 # List available profiles
 print(list_vaccine_profiles())
@@ -1199,30 +1108,34 @@ results = simulate_master_hospital_model(
 
 ### Time-Varying Scenarios
 
+The Master Model supports time-varying parameters including seasonality and interventions:
+
 ```python
-from time_varying_models import simulate_age_structured_hospital_model_with_time_variance
-from plotting_utils import plot_time_varying_results
+from master_hospital_model import simulate_master_hospital_model
 import config
 
-# Seasonal transmission with lockdown
-results = simulate_age_structured_hospital_model_with_time_variance(
+# Seasonal transmission with lockdown intervention
+results = simulate_master_hospital_model(
     beta_base=0.35,
     age_params=config.AGE_PARAMS_DEFAULT,
     contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    hosp_capacity=100,
-    hill_coef=4,
-    coverage=[0.1, 0.3, 0.6],
-    VE=0.7,
     age_pops=config.AGE_POPS_DEFAULT,
+    ward_capacity=80,
+    icu_capacity=20,
+    
+    # Seasonal transmission with winter peak
     seasonal_params={'amplitude': 0.3, 'period': 365, 'peak_day': 0},
-    waning_params={'omega': 0.003},  # ~333 day immunity
+    
+    # Lockdown intervention from day 60-100
     interventions=[
         {'start_day': 60, 'end_day': 100, 'transmission_reduction': 0.5}
     ],
+    
+    # Natural immunity waning
+    waning_params={'omega': 0.003},  # ~333 day immunity duration
+    
     Tmax=400
 )
-
-plot_time_varying_results(results, hosp_capacity=100)
 ```
 
 ---
@@ -1236,7 +1149,7 @@ The `config.py` module provides a hierarchical configuration system with ready-t
 The easiest way to run simulations is using pre-built scenario bundles:
 
 ```python
-from config import get_scenario_params, list_scenarios, describe_scenario
+from config_helpers import get_scenario_params, list_scenarios, describe_scenario
 from master_hospital_model import simulate_master_hospital_model
 
 # List available scenarios
@@ -1306,7 +1219,7 @@ Bundled capacity + population presets:
 Access via helper function:
 
 ```python
-from config import get_healthcare_systems
+from config_helpers import get_healthcare_systems
 systems = get_healthcare_systems()  # Returns dict of all systems
 ```
 
@@ -1359,7 +1272,8 @@ CONTACT_MATRIX_ELDERLY_SHIELDING # Reduced elderly contacts
 ### Creating Custom Scenarios
 
 ```python
-from config import create_custom_scenario, HEALTHCARE_SYSTEM_URBAN, INTERVENTION_EARLY_STRONG
+from config_helpers import create_custom_scenario
+from config import HEALTHCARE_SYSTEM_URBAN, INTERVENTION_EARLY_STRONG
 
 my_scenario = create_custom_scenario(
     name='My Custom Outbreak',
@@ -1373,7 +1287,7 @@ my_scenario = create_custom_scenario(
 )
 
 # Convert to simulation parameters
-from config import get_scenario_params
+from config_helpers import get_scenario_params
 # Add to registry temporarily or use directly
 ```
 
@@ -1498,141 +1412,48 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 
 ---
 
-## Examples
-
-### Example 1: Comparing Vaccination Strategies
-
-```python
-from simulation_helpers import compare_vaccination_strategies
-from plotting_utils import plot_strategy_comparison
-import config
-
-results = compare_vaccination_strategies(
-    beta=0.3,
-    age_params=config.AGE_PARAMS_DEFAULT,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    hosp_capacity=100,
-    age_pops=config.AGE_POPS_DEFAULT,
-    strategies=config.VACCINATION_STRATEGIES
-)
-
-plot_strategy_comparison(results, hosp_capacity=100)
-```
-
-### Example 2: Optimal Vaccine Allocation
-
-```python
-from simulation_helpers import optimize_vaccine_allocation
-from plotting_utils import plot_optimal_allocation
-import config
-
-deaths_grid, overflow_grid, young_range, middle_range = optimize_vaccine_allocation(
-    beta=0.3,
-    age_params=config.AGE_PARAMS_DEFAULT,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    hosp_capacity=100,
-    age_pops=config.AGE_POPS_DEFAULT,
-    total_coverage_target=0.3,  # 30% of population
-    n_grid=20
-)
-
-opt_young, opt_middle, opt_elderly = plot_optimal_allocation(
-    deaths_grid, overflow_grid, young_range, middle_range,
-    age_pops=config.AGE_POPS_DEFAULT,
-    total_doses=0.3 * sum(config.AGE_POPS_DEFAULT)
-)
-```
-
-### Example 3: Finding Optimal Ward/ICU Split
-
-```python
-from simulation_helpers import sweep_icu_capacity
-import config
-
-sweep_results = sweep_icu_capacity(
-    beta=0.4,
-    age_params=config.AGE_PARAMS_DEFAULT,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    age_pops=config.AGE_POPS_DEFAULT,
-    total_beds=100,
-    coverage=[0.1, 0.2, 0.7],
-    n_points=20
-)
-
-print(f"Optimal ICU fraction: {sweep_results['optimal_icu_fraction']:.1%}")
-print(f"Minimum deaths: {sweep_results['optimal_deaths']:.0f}")
-# sweep_results contains arrays you can plot externally (e.g., matplotlib contour/line plots)
-```
-
----
-
 ## API Reference
 
-### Core Simulation Functions
+### Core Simulation Function
 
-#### `simulate_basic_hospital_model()`
+#### `simulate_master_hospital_model()` (master_hospital_model.py)
 
-Basic SIXHRD model with single hospital compartment.
+Unified model combining all features: ward/ICU split, age structure, seasonality, interventions, vaccination with three-factor efficacy, waning immunity, and differential mortality tracking. This is the primary simulation function.
 
-#### `simulate_age_structured_hospital_model()`
+### ODE and Gating Functions (simulation_helpers.py)
 
-Age-structured model with shared hospital capacity.
+#### `ode_derivatives_with_vax_and_waning()`
 
-#### `simulate_age_structured_hospital_model_with_icu_ward_split()`
-
-Full age-structured model with ward/ICU separation.
-
-#### `simulate_age_structured_hospital_model_with_time_variance()`
-
-Age-structured model with seasonal, policy, and waning dynamics.
-
-#### `simulate_master_hospital_model()`
-
-Unified model combining all features: ward/ICU split, seasonality, interventions, waning immunity, and differential mortality tracking.
-
-### Helper Functions
-
-#### `compare_vaccination_strategies()`
-
-Run multiple vaccination scenarios and compile results.
-
-#### `compare_vaccination_strategies_icu()`
-
-Compare strategies using ward/ICU model.
-
-#### `optimize_vaccine_allocation()`
-
-Grid search for optimal age-specific vaccine distribution.
-
-#### `compare_capacity_scenarios()`
-
-Compare different ward/ICU capacity allocations.
-
-#### `sweep_icu_capacity()`
-
-Sweep ICU fraction to find optimal allocation.
-
-### Utility Functions
+Core ODE system computing derivatives for all 18 compartments plus 5 accumulators. Implements the complete SEIXHRD dynamics with vaccination, waning, and Hill function gating.
 
 #### `hill_gate(occupancy, capacity, hill_coef)`
 
-Calculate Hill function gating factor.
+Calculate Hill function gating factor: $g = \frac{K^n}{K^n + H^n}$
+
+### Time-Varying Utilities (time_varying_helpers.py)
 
 #### `seasonal_forcing(t, beta_base, amplitude, period, peak_day)`
 
-Calculate time-varying transmission with seasonality.
+Compute seasonal transmission rate with cosine modulation.
 
 #### `policy_multiplier(t, interventions)`
 
-Calculate transmission multiplier from active interventions.
+Compute intervention effects on transmission.
 
-### Configuration Helper Functions (`config.py`)
+#### `waning_immunity_loss(R, omega)`
+
+Compute immunity waning flow from R back to S.
+
+### Configuration Helper Functions (config_helpers.py)
 
 #### `get_scenario_params(scenario_name)`
 
 Extract parameters from a scenario bundle for `simulate_master_hospital_model()`.
 
 ```python
+from config_helpers import get_scenario_params
+from master_hospital_model import simulate_master_hospital_model
+
 params = get_scenario_params('covid_delta')
 results = simulate_master_hospital_model(**params)
 ```
@@ -1651,7 +1472,7 @@ Return dictionary of all healthcare system configurations.
 
 #### `get_vaccination_strategies()`
 
-Return vaccination strategies as normalized `{name: [coverage_list]}` format, compatible with `compare_vaccination_strategies()` and other helper functions.
+Return vaccination strategies as normalized `{name: [coverage_list]}` format.
 
 #### `validate_age_params(age_params)`
 
@@ -1660,6 +1481,10 @@ Validate that age parameter dictionaries contain all required keys. Returns `Tru
 #### `create_custom_scenario(name, beta_base, healthcare_system, vaccination_coverage, **kwargs)`
 
 Create a custom scenario configuration dictionary.
+
+#### `get_vaccine_profile(profile_name)`
+
+Get predefined vaccine efficacy profiles (mRNA, viral_vector, inactivated, natural_infection, hybrid).
 
 ---
 

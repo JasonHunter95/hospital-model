@@ -218,9 +218,9 @@ YOUNG_PARAMS_EMPIRICAL = {
     'alpha': 0.2,             # ~5 day latent period
     
     # Disease progression
-    'sigma': 0.02,            # 2% progress to severe
-    'eta': 0.05,              # 5% of severe need ward
-    'eta_icu': 0.02,          # 2% of ward need ICU
+    'sigma': 0.02,            # 2% progress to severe per day
+    'eta': 0.05,              # ward admission attempt rate (per day) for severe cases
+    'eta_icu': 0.02,          # ICU escalation rate (per day) for ward patients
     
     # Recovery rates
     'gamma_I': 0.14,          # ~7 day infectious period
@@ -240,9 +240,9 @@ YOUNG_PARAMS_EMPIRICAL = {
 
 MIDDLE_PARAMS_EMPIRICAL = {
     'alpha': 0.2,
-    'sigma': 0.08,            # 8% progress to severe
-    'eta': 0.15,              # 15% of severe need ward
-    'eta_icu': 0.10,          # 10% of ward need ICU
+    'sigma': 0.08,            # 8% progress to severe per day
+    'eta': 0.15,              # ward admission attempt rate (per day)
+    'eta_icu': 0.10,          # ICU escalation rate (per day)
     'gamma_I': 0.12,          # ~8 day infectious period
     'gamma_X': 0.15,          # ~7 day severe phase
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
@@ -258,9 +258,9 @@ MIDDLE_PARAMS_EMPIRICAL = {
 
 ELDERLY_PARAMS_EMPIRICAL = {
     'alpha': 0.18,            # slightly longer latent period
-    'sigma': 0.15,            # 15% progress to severe
-    'eta': 0.35,              # 35% of severe need ward
-    'eta_icu': 0.25,          # 25% of ward need ICU
+    'sigma': 0.15,            # 15% progress to severe per day
+    'eta': 0.35,              # ward admission attempt rate (per day)
+    'eta_icu': 0.25,          # ICU escalation rate (per day)
     'gamma_I': 0.10,          # ~10 day infectious period
     'gamma_X': 0.10,          # ~10 day severe phase
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted

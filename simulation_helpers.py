@@ -437,8 +437,9 @@ def _master_deriv(y, t, params):
     
     need_icu_vax = eta_icu * H_ward_vax
     admit_icu_vax = need_icu_vax * g_icu
-    # Hybrid immunity (R_vax) should wane at natural-immunity rate, not vaccine-only rate
-    waning_flow_vax = omega * R_vax
+    # R_vax waning uses omega_vax (vaccine-specific waning rate)
+    # This allows independent control of natural vs vaccine-induced immunity duration
+    waning_flow_vax = omega_vax * R_vax
     
     # ========================================
     # Differential Mortality (Unvaccinated)
