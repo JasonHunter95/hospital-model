@@ -1020,7 +1020,7 @@ print(f"Vaccinated deaths: {sum(results['D_vax'][a][-1] for a in range(3)):.0f}"
 
 ```python
 from config_helpers import get_vaccine_profile, list_vaccine_profiles, describe_vaccine_profile
-
+import config
 # List available profiles
 print(list_vaccine_profiles())
 # ['mrna_original', 'mrna_omicron', 'adenovirus', 'inactivated', 'influenza_typical', 'ideal', 'minimal']
@@ -1147,7 +1147,7 @@ results = simulate_master_hospital_model(
 
 ## Configuration
 
-The `config.py` module provides a hierarchical configuration system with ready-to-use scenario bundles, modular presets, and helper functions for the master hospital model.
+The `config.py` module provides a hierarchical configuration system with ready-to-use scenario bundles, modular presets for the master hospital model. Helper functions for accessing and customizing configurations are included in `config_helpers.py`.
 
 ### Quick Start with Scenarios
 
@@ -1255,7 +1255,7 @@ WANING_AGE_DIFFERENTIAL  # Age-specific: elderly wane faster
 #### 5. Vaccination Strategies
 
 ```python
-from config import get_vaccination_strategies
+from config_helpers import get_vaccination_strategies
 
 strategies = get_vaccination_strategies()  # Returns normalized {name: [coverage_list]}
 # Available: 'none', 'uniform_low/moderate/high', 'elderly_priority', 
@@ -1457,6 +1457,7 @@ Extract parameters from a scenario bundle for `simulate_master_hospital_model()`
 
 ```python
 from config_helpers import get_scenario_params
+import config
 from master_hospital_model import simulate_master_hospital_model
 
 params = get_scenario_params('covid_delta')

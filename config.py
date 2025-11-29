@@ -3,19 +3,25 @@ Configuration module for hospital SEIXHRD model simulations.
 
 This module centralizes all simulation parameters, age-specific disease parameters,
 contact matrices, vaccination strategies, and complete scenario configurations for
-the master hospital model. Configurations are organized hierarchically:
+the master hospital model. Helper functions are located in config_helpers.py.
+Configurations are organized hierarchically.
 
 1. CORE PARAMETERS - Fundamental simulation and model parameters
-2. AGE-SPECIFIC DISEASE PARAMETERS - Epidemiological rates by age group  
-3. CONTACT MATRICES - Mixing patterns between age groups
-4. HEALTHCARE SYSTEM CONFIGURATIONS - Bundled capacity + population presets
-5. TIME-VARYING PARAMETERS - Seasonality, interventions, waning immunity
-6. VACCINATION STRATEGIES - Coverage allocation patterns
-7. COMPLETE SCENARIO BUNDLES - Ready-to-use simulation configurations
-8. HELPER FUNCTIONS - Utilities for scenario management
+2. TRANSMISSION RATE PRESETS - Beta values for different transmissibility scenarios
+3. AGE GROUP DEFINITIONS - Labels and counts for age-structured modeling
+4. AGE-SPECIFIC DISEASE PARAMETERS - Epidemiological rates by age group  
+5. DIFFERENTIAL MORTALITY PARAMETERS - Mortality multipliers when care is denied
+6. CONTACT MATRICES - Mixing patterns between age groups
+7. HEALTHCARE SYSTEM CONFIGURATIONS - Bundled capacity + population presets
+8. INITIAL CONDITIONS - Various outbreak seeding scenarios
+9. TIME-VARYING PARAMETERS - Seasonality, interventions, waning immunity
+10. VACCINATION STRATEGIES - Coverage allocation patterns
+11. COMPLETE SCENARIO BUNDLES - Ready-to-use simulation configurations
+12. SENSITIVITY ANALYSIS RANGES - Parameter ranges for sensitivity studies
 
 Usage:
-    from config import SCENARIO_COVID_DELTA, get_scenario_params
+    from config import SCENARIO_COVID_DELTA
+    from config_helpers import get_scenario_params
     params = get_scenario_params('covid_delta')
     results = simulate_master_hospital_model(**params)
 """
@@ -682,7 +688,7 @@ WANING_AGE_DIFFERENTIAL = {
 
 
 # =======================================================================
-# 9.4 Demographic Parameters (Births and Background Deaths)
+# 9.3 Demographic Parameters (Births and Background Deaths)
 # =======================================================================
 # For long-term simulations, open population dynamics with births and
 # non-disease (background) mortality can be enabled.
@@ -758,7 +764,7 @@ DEMOGRAPHIC_PRESETS = {
 
 
 # =======================================================================
-# 9.3 Policy Intervention Templates
+# 9.4 Policy Intervention Templates
 # =======================================================================
 # Each intervention: {'start_day', 'end_day', 'transmission_reduction'}
 

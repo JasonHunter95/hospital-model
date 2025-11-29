@@ -36,7 +36,6 @@ from scipy.integrate import odeint, solve_ivp
 import config
 from simulation_helpers import (
     hill_gate,
-    _hill_gate_vectorized,
     _validate_age_structured_inputs,
     _coerce_initial_vector,
     _pack_state,
@@ -1089,7 +1088,6 @@ def simulate_master_hospital_model(
 # - Sensitivity analysis tools
 # - Export results to common data formats (CSV, JSON, etc.)
 # - User-friendly interface for setting up simulations
-# - Unit tests for model validation
 # - Performance optimizations for large populations
 # - Integration with GIS data for spatial modeling
 # - Customizable output metrics for specific research questions
