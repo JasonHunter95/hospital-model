@@ -29,10 +29,10 @@ class ModelData:
                 'age_params': AGE_PARAMS_EMPIRICAL,
                 'contact_matrix': CONTACT_MATRIX_DEFAULT,
                 'age_pops': [30000, 50000, 20000],
-                'Tmax': 365
+                'Tmax': 100
             }
         
-        self.params['Tmax'] = 365  # Ensure long enough for visualization
+        self.params['Tmax'] = 100  # Ensure long enough for visualization
         self.results = simulate_master_hospital_model(**self.params)
         self.times = np.array(self.results['times'])
         
@@ -61,7 +61,7 @@ class ModelData:
 class EpidemicWaveScene(Scene):
     def construct(self):
         data = ModelData()
-        max_time = 365 # Limit to 365 days for better pacing
+        max_time = 100 # Limit to 100 days for better pacing
         
         # Calculate max population for Y axis scaling
         total_pop = data.get_value_at_time('S_total', 0) + \
@@ -77,7 +77,7 @@ class EpidemicWaveScene(Scene):
         # --- Layout ---
         # Axes on the left (65% of width)
         axes = Axes(
-            x_range=[0, max_time, 200],
+            x_range=[0, max_time, 100],
             y_range=[0, y_max_exponent, 1], # Y axis represents powers of 10
             x_length=8,
             y_length=6,
@@ -86,7 +86,7 @@ class EpidemicWaveScene(Scene):
         ).to_edge(LEFT, buff=0.8) # Increased buff for Y labels
         
         # Add X axis numbers manually
-        axes.x_axis.add_numbers(range(0, max_time + 1, 200))
+        axes.x_axis.add_numbers(range(0, max_time + 1, 20), font_size=16)
         
         # Custom Y axis labels (Powers of 10)
         y_labels = VGroup()

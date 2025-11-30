@@ -2,6 +2,9 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
+https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5
+
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -349,6 +352,8 @@ The Hill coefficient $n$ controls how sharply admissions decline as capacity is 
 
 The model uses a system of Ordinary Differential Equations (ODEs) for each age group $a$. The key innovation is the **separation of severe cases into queued and admitted states** to rigorously model capacity constraints and differential mortality.
 
+> **Note on Demographics:** The equations below represent **closed population** dynamics (no births or deaths from non-disease causes). When `demographic_params` is provided to the simulation, additional terms are added: births enter S (or S_vax with neonatal vaccination), and background deaths $\mu_a^{bg} \cdot X$ are subtracted from all living compartments. See the [Demographic Dynamics](#demographic-dynamics-births-and-background-deaths) section for details.
+
 #### Basic SEIXHRD Hospital Model (Simplified)
 
 For a single population without age structure:
@@ -687,17 +692,22 @@ $$\frac{dD_{\text{vax},a}}{dt} = \mu_{I,\text{vax}} I_{\text{vax},a} + \mu_{X,\t
 
 #### Hybrid Immunity Waning
 
-Individuals in R_vax have "hybrid immunity" (vaccination + natural infection). The model wanes R_vax at the **natural immunity rate** $\omega_a$ (not a separate $\omega_{\text{vax}}$), reflecting that hybrid immunity duration is driven by infection-induced immunity:
+Individuals in R_vax have "hybrid immunity" (vaccination + natural infection). The model wanes R_vax at a **separate vaccine-specific waning rate** $\omega_{\text{vax}}$, allowing independent control of natural immunity duration versus vaccine-induced immunity duration:
 
-$$\frac{dR_{\text{vax},a}}{dt} = \text{(recoveries)} - \omega_a R_{\text{vax},a}$$
+$$\frac{dR_{\text{vax},a}}{dt} = \text{(recoveries)} - \omega_{\text{vax}} R_{\text{vax},a}$$
+
+This separation allows modeling scenarios where:
+
+- Natural immunity (R → S at rate ω) may wane at a different rate than
+- Vaccine-induced/hybrid immunity (R_vax → S or S_vax at rate ω_vax)
 
 The destination depends on the `waning_destination` parameter:
 
 - If `waning_destination = 'S'`: R_vax → S (lose all protection)
 - If `waning_destination = 'S_vax'`: R_vax → S_vax (retain vaccine-induced protection)
 
-$$\frac{dS_a}{dt} += \omega_a R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S]$$
-$$\frac{dS_{\text{vax},a}}{dt} += \omega_a R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S_{\text{vax}}]$$
+$$\frac{dS_a}{dt} += \omega_{\text{vax}} R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S]$$
+$$\frac{dS_{\text{vax},a}}{dt} += \omega_{\text{vax}} R_{\text{vax},a} \cdot \mathbb{1}[\text{dest}=S_{\text{vax}}]$$
 
 #### Population Conservation
 
@@ -734,7 +744,7 @@ pip install jupyter
 
 ## Testing
 
-The project includes a comprehensive test suite with **229 tests** covering all simulation functions, helper utilities, vaccination compartments, and edge cases.
+The project includes a comprehensive test suite with **709 tests** covering all simulation functions, helper utilities, vaccination compartments, and edge cases.
 
 ### Running Tests
 
@@ -765,14 +775,19 @@ python -m pytest tests/ -v -k "conservation"
 
 ### Test Categories
 
-| Test File | Tests | Coverage |
-|-----------|-------|----------|
-| `test_helper_functions.py` | 48 | `hill_gate`, `_validate_age_structured_inputs`, `_coerce_initial_vector`, `seasonal_forcing`, `policy_multiplier` |
-| `test_master_model_integration.py` | 45 | Smoke tests, output structure, population conservation, death monotonicity, compartment flows |
-| `test_time_varying_behavior.py` | 25 | Seasonal forcing, policy interventions, waning immunity, combined effects |
-| `test_edge_cases.py` | 40 | No infection, full vaccination, zero/high capacity, single age group, extreme parameters |
-| `test_differential_mortality.py` | 31 | D_treated vs D_untreated tracking, capacity-dependent mortality, gating correlation |
-| `test_vaccination_compartments.py` | 40 | Three-Factor Vaccine Model, breakthrough infections, VE efficacy, vaccine waning, population conservation |
+| Test File | Coverage |
+|-----------|----------|
+| `test_config_helpers.py` | Configuration helper functions, scenario param extraction, vaccine profile retrieval |
+| `test_demographic_dynamics.py` | Births, background deaths, population conservation with demographics, neonatal vaccination |
+| `test_differential_mortality.py` | D_treated vs D_untreated tracking, capacity-dependent mortality, gating correlation |
+| `test_edge_cases.py` | No infection, full vaccination, zero/high capacity, single age group, extreme parameters |
+| `test_helper_functions.py` | `hill_gate`, `_validate_age_structured_inputs`, `_coerce_initial_vector`, `seasonal_forcing`, `policy_multiplier` |
+| `test_master_model_integration.py` | Smoke tests, output structure, population conservation, death monotonicity, compartment flows |
+| `test_scenario_validation.py` | Scenario parameter validation, registry completeness, healthcare system configs |
+| `test_solver_options.py` | ODE solver options (odeint, solve_ivp), tolerances, methods (BDF, Radau, RK45, LSODA) |
+| `test_symbolic_verification.py` | Symbolic verification of ODE equations, conservation laws, flow balance |
+| `test_time_varying_behavior.py` | Seasonal forcing, policy interventions, waning immunity, combined effects |
+| `test_vaccination_compartments.py` | Three-Factor Vaccine Model, breakthrough infections, VE efficacy, vaccine waning, population conservation |
 
 ### Test Organization
 
@@ -884,14 +899,23 @@ hospital-model/
 ├── simulation_helpers.py      # ODE derivatives and helper functions
 ├── time_varying_helpers.py    # Time-varying transmission utilities
 ├── master_model_experiments.ipynb  # Master model experiments notebook
-├── tests/                     # Comprehensive test suite (232 tests)
+├── more_experiments.ipynb     # Additional experiments notebook
+├── visualizations/            # Visualization scripts
+│   └── manim_scenes.py        # Manim animation scenes for epidemic dynamics
+├── results/                   # Output folder for figures and results
+├── tests/                     # Comprehensive test suite (709 tests)
 │   ├── __init__.py            # Test package marker
 │   ├── conftest.py            # Shared pytest fixtures
+│   ├── test_config_helpers.py         # Configuration helper function tests
+│   ├── test_demographic_dynamics.py   # Demographic dynamics tests
+│   ├── test_differential_mortality.py # D_treated/D_untreated tests
+│   ├── test_edge_cases.py             # Boundary condition tests
 │   ├── test_helper_functions.py       # Unit tests for helper functions
 │   ├── test_master_model_integration.py  # Integration tests for main simulation
+│   ├── test_scenario_validation.py    # Scenario parameter validation tests
+│   ├── test_solver_options.py         # ODE solver option tests
+│   ├── test_symbolic_verification.py  # Symbolic math verification tests
 │   ├── test_time_varying_behavior.py  # Time-varying dynamics tests
-│   ├── test_edge_cases.py     # Boundary condition tests
-│   ├── test_differential_mortality.py  # D_treated/D_untreated tests
 │   └── test_vaccination_compartments.py # Vaccination compartment tests
 └── README.md                  # This file
 ```
@@ -1175,6 +1199,7 @@ results = simulate_master_hospital_model(**params)
 | Scenario | Description | Key Features |
 |----------|-------------|---------------|
 | `baseline` | Default moderate outbreak | Urban setting, no interventions |
+| `late_onset` | Late-onset mild wave | Delayed peak, lower transmission |
 | `covid_early_2020` | Early pandemic wave | Delayed lockdown, no vaccines |
 | `covid_delta` | Delta variant wave | High transmission, partial vaccination |
 | `covid_omicron` | Omicron wave | Very high transmission, immune escape |
@@ -1183,10 +1208,20 @@ results = simulate_master_hospital_model(**params)
 | `stress_test` | Hospital capacity crisis | High transmission, limited rural capacity |
 | `optimal_response` | Best-case intervention | Early lockdown + high vaccination |
 | `resource_limited` | Low-resource setting | Constrained healthcare system |
-| `school_outbreak` | School-seeded outbreak | Young seed, school closure |
-| `care_home_outbreak` | Care home outbreak | Elderly seed, shielding |
+| `school_outbreak` | School-seeded outbreak | Young seed, school closure contact matrix |
+| `care_home_outbreak` | Care home outbreak | Elderly seed, shielding measures |
 | `surge_capacity` | Surge capacity test | Field hospital activation |
 | `cyclical_policy` | On-off lockdowns | Intermittent intervention strategy |
+| `novel_pathogen` | Novel pathogen emergence | Unknown pathogen, aggressive response, no vaccines |
+| `vaccine_rollout_phased` | Phased vaccine rollout | Realistic elderly-first vaccination campaign |
+| `variant_emergence` | Variant emergence mid-outbreak | Immune escape after initial wave |
+| `capacity_collapse` | Healthcare capacity collapse | Severe outbreak overwhelming minimal infrastructure |
+| `endemic_vaccination` | Endemic with ongoing vaccination | Long-term dynamics with seasonal vaccine campaigns |
+| `school_reopening` | School reopening policy test | Compare schools open vs closed scenarios |
+| `sensitivity_transmission` | Transmission sensitivity base | Base scenario for β parameter sweeps |
+| `sensitivity_capacity` | Capacity sensitivity base | Base scenario for capacity analysis |
+| `population_dynamics` | Open population dynamics | Long-term simulation with births and deaths |
+| `neonatal_vaccination` | Neonatal vaccination program | Vaccination at birth only (e.g., Hepatitis B) |
 
 ### Configuration Hierarchy
 
@@ -1574,6 +1609,7 @@ Births enter the susceptible compartment(s) at a rate proportional to the total 
 $$\text{births}_a = b \cdot N_{\text{live}} \cdot p_a$$
 
 Where:
+
 - $b$ is the crude birth rate per capita per day
 - $N_{\text{live}}$ is the current total live population (all non-D compartments)
 - $p_a$ is the fraction of births entering age group $a$ (typically $p_0 = 1.0$ for young)
@@ -1628,7 +1664,7 @@ demographic_params = DEMOGRAPHIC_PRESETS['equilibrium']
 
 For simulations longer than 1 year (Tmax > 365), the model issues a **population drift warning** if births and deaths are significantly imbalanced:
 
-```
+```text
 Warning: Long simulation (Tmax=1095 days) with demographic_params enabled.
 Population will drift over time. Initial birth rate (49.0/1000/year) differs 
 from average background death rate (45.2/1000/year) by more than 10%.

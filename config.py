@@ -958,7 +958,7 @@ SCENARIO_COVID_DELTA = {
     'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
     'seasonal_params': SEASONAL_PARAMS_MILD,
     'waning_params': WANING_FAST,
-    'interventions': INTERVENTION_TIERED_ESCALATING,
+    'interventions': INTERVENTION_NONE,
     'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
     'VE': VACCINE_EFFICACY_PRESETS['moderate'],  # reduced against Delta
     'Tmax': 365,
