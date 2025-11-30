@@ -2,7 +2,7 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
-https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5
+![Epidemic Wave Animation](https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5)
 
 
 ## Table of Contents
@@ -33,6 +33,7 @@ https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5
   - [Time-Varying Scenarios](#time-varying-scenarios)
 - [Configuration](#configuration)
 - [Key Features](#key-features)
+- [Visualization](#visualization-manim-animations)
 - [API Reference](#api-reference)
 - [Demographic Dynamics](#demographic-dynamics-births-and-background-deaths)
 
@@ -519,7 +520,7 @@ results = simulate_master_hospital_model(
     age_pops=[3000, 5000, 2000],
     solver='odeint',           # Default
     rtol=1e-6,                 # Relative tolerance
-    atol=1e-8,                 # Absolute tolerance
+    atol=1e-9,                 # Absolute tolerance (default)
     ...
 )
 ```
@@ -581,7 +582,7 @@ If any compartment value falls below the threshold, a warning is issued. All com
 
 #### State Vector Packing
 
-The **18 compartments** × N age groups are packed into a single 1D state vector, plus **5 tracked accumulators** for differential mortality:
+The **18 compartments** × N age groups are packed into a single 1D state vector, plus **7 tracked accumulators** for differential mortality and demographics:
 
 ```python
 # Main compartments (18 per age group):
@@ -592,8 +593,10 @@ STATE_ORDER = [
 
 # Tracked accumulators (7 total, per-age):
 TRACKED_ORDER = [
-    'D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated', 'cum_breakthrough',
-    'cum_births', 'cum_background_deaths'
+    'D_treated', 'D_untreated',           # Unvaccinated differential mortality
+    'D_vax_treated', 'D_vax_untreated',   # Vaccinated differential mortality
+    'cum_breakthrough',                    # Cumulative breakthrough infections
+    'cum_births', 'cum_background_deaths'  # Demographic tracking
 ]
 
 # For 3 age groups: 18 * 3 + 7 * 3 = 75 state variables
@@ -744,7 +747,7 @@ pip install jupyter
 
 ## Testing
 
-The project includes a comprehensive test suite with **709 tests** covering all simulation functions, helper utilities, vaccination compartments, and edge cases.
+The project includes a comprehensive test suite covering all simulation functions, helper utilities, vaccination compartments, and edge cases.
 
 ### Running Tests
 
@@ -876,7 +879,7 @@ python -c "import numpy; import matplotlib; import pytest; print('All dependenci
 # Run full test suite
 python -m pytest tests/ -v --tb=short
 
-# Expected output: 232 passed
+# Expected output: 709 passed
 ```
 
 ### Code Quality Checks
@@ -893,44 +896,49 @@ Before submitting changes, ensure:
 
 ```text
 hospital-model/
-├── config.py                  # Scenario bundles, presets, and helper functions
-├── config_helpers.py          # Helper functions for configs (vaccine profiles, presets)
+├── config.py                  # Scenario bundles, presets, and parameter definitions
+├── config_helpers.py          # Helper functions for configs (vaccine profiles, scenarios)
 ├── master_hospital_model.py   # Unified master model with all features
-├── simulation_helpers.py      # ODE derivatives and helper functions
-├── time_varying_helpers.py    # Time-varying transmission utilities
-├── master_model_experiments.ipynb  # Master model experiments notebook
-├── more_experiments.ipynb     # Additional experiments notebook
+├── simulation_helpers.py      # ODE derivatives, state packing, Hill gating
+├── time_varying_helpers.py    # Seasonal forcing and policy multiplier functions
+├── master_model_experiments.ipynb  # Primary experiments notebook (6 experiments)
+├── more_experiments.ipynb     # Additional experiments and explorations
+├── README.md                  # This documentation file
 ├── visualizations/            # Visualization scripts
 │   └── manim_scenes.py        # Manim animation scenes for epidemic dynamics
-├── results/                   # Output folder for figures and results
-├── tests/                     # Comprehensive test suite (709 tests)
-│   ├── __init__.py            # Test package marker
-│   ├── conftest.py            # Shared pytest fixtures
-│   ├── test_config_helpers.py         # Configuration helper function tests
-│   ├── test_demographic_dynamics.py   # Demographic dynamics tests
-│   ├── test_differential_mortality.py # D_treated/D_untreated tests
-│   ├── test_edge_cases.py             # Boundary condition tests
-│   ├── test_helper_functions.py       # Unit tests for helper functions
-│   ├── test_master_model_integration.py  # Integration tests for main simulation
-│   ├── test_scenario_validation.py    # Scenario parameter validation tests
-│   ├── test_solver_options.py         # ODE solver option tests
-│   ├── test_symbolic_verification.py  # Symbolic math verification tests
-│   ├── test_time_varying_behavior.py  # Time-varying dynamics tests
-│   └── test_vaccination_compartments.py # Vaccination compartment tests
-└── README.md                  # This file
+├── media/                     # Output folder for Manim animations
+│   ├── images/                # Static image outputs
+│   ├── videos/                # Video animation outputs
+│   └── Tex/                   # LaTeX renders for math expressions
+├── results/                   # Output folder for notebook figures and results
+└── tests/                     # Comprehensive test suite
+    ├── __init__.py            # Test package marker
+    ├── conftest.py            # Shared pytest fixtures (20+ fixtures)
+    ├── test_config_helpers.py         # Configuration helper function tests
+    ├── test_demographic_dynamics.py   # Births, background deaths, population dynamics
+    ├── test_differential_mortality.py # D_treated/D_untreated tracking tests
+    ├── test_edge_cases.py             # Boundary conditions and extreme parameters
+    ├── test_helper_functions.py       # Hill gate, validation, coercion utilities
+    ├── test_master_model_integration.py  # Smoke tests, output structure, conservation
+    ├── test_scenario_validation.py    # Scenario parameter validation across registry
+    ├── test_solver_options.py         # ODE solver options (odeint, solve_ivp, methods)
+    ├── test_symbolic_verification.py  # Symbolic math verification of ODE equations
+    ├── test_time_varying_behavior.py  # Seasonality, interventions, waning immunity
+    └── test_vaccination_compartments.py # Three-Factor vaccine model tests
 ```
 
 ### File Descriptions
 
 | File | Purpose |
 |------|---------|
-| `config.py` | Complete scenario bundles, transmission/healthcare/intervention presets, vaccination strategies, and helper functions (`get_scenario_params()`, `list_scenarios()`, etc.) |
-| `config_helpers.py` | Helper functions for configuration: `get_vaccine_profile()`, `create_custom_scenario()`, etc. |
-| `master_hospital_model.py` | Unified simulation: `simulate_master_hospital_model()` combining age structure, ward/ICU, seasonality, interventions, waning immunity, and differential mortality |
-| `simulation_helpers.py` | ODE derivatives (`ode_derivatives_with_vax_and_waning`), Hill gating, seasonal forcing, and policy multiplier utilities |
-| `time_varying_helpers.py` | Time-varying transmission utilities: `seasonal_forcing()`, `policy_multiplier()`, `waning_immunity_loss()` |
-| `tests/conftest.py` | Shared pytest fixtures for all test files |
-| `tests/test_*.py` | Test modules covering helpers, integration, edge cases, mortality tracking, and vaccination |
+| `config.py` | Complete scenario bundles, transmission/healthcare/intervention presets, vaccination strategies, demographic presets, and all parameter definitions |
+| `config_helpers.py` | Helper functions: `get_scenario_params()`, `get_vaccine_profile()`, `compare_vaccine_profiles()`, `create_sensitivity_variants()`, scenario validation |
+| `master_hospital_model.py` | Unified simulation: `simulate_master_hospital_model()` combining age structure, ward/ICU, seasonality, interventions, vaccination, demographics, and differential mortality |
+| `simulation_helpers.py` | ODE derivatives (`_master_deriv`), state packing/unpacking (`_pack_state`, `_unpack_state`), Hill gating (`hill_gate`), demographic helpers, input validation |
+| `time_varying_helpers.py` | Time-varying transmission utilities: `seasonal_forcing()`, `policy_multiplier()` |
+| `visualizations/manim_scenes.py` | Animated visualization of epidemic dynamics using Manim (see [Visualization](#visualization-manim-animations)) |
+| `tests/conftest.py` | Shared pytest fixtures: `minimal_inputs`, `high_capacity_inputs`, `demographic_inputs`, `vaccination_inputs`, etc. |
+| `tests/test_*.py` | Test modules covering all aspects of the model (see [Testing](#testing) section) |
 
 ---
 
@@ -1452,6 +1460,55 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 
 ---
 
+## Visualization (Manim Animations)
+
+The `visualizations/manim_scenes.py` module provides animated visualizations of epidemic dynamics using the [Manim](https://www.manim.community/) library.
+
+### EpidemicWaveScene
+
+Animates the complete SEIXHRD dynamics over time with:
+
+- **Logarithmic Y-axis**: Handles the wide range of compartment sizes
+- **Live dashboard**: Real-time counters for all compartments
+- **Capacity lines**: Visual indicators for ward and ICU capacity thresholds
+- **Scanning time indicator**: Shows current simulation day
+
+```python
+# Run from the visualizations directory
+manim -pql manim_scenes.py EpidemicWaveScene
+
+# Higher quality rendering
+manim -pqh manim_scenes.py EpidemicWaveScene
+```
+
+### Manim Usage Example
+
+```python
+from visualizations.manim_scenes import ModelData, EpidemicWaveScene
+
+# The ModelData class runs a simulation and provides data for animation
+data = ModelData(scenario='covid_delta')
+
+# Access simulation results
+times = data.get_times()
+infections = data.get_curve('I_total')
+value_at_day_50 = data.get_value_at_time('H_ward_total', 50)
+```
+
+### Animation Output
+
+Animation outputs are saved to the `media/` directory:
+
+```text
+media/
+├── videos/manim_scenes/
+│   └── 1080p60/           # High-quality video outputs
+├── images/                 # Static frame captures
+└── Tex/                    # LaTeX-rendered equations
+```
+
+---
+
 ## API Reference
 
 ### Core Simulation Function
@@ -1462,9 +1519,13 @@ Unified model combining all features: ward/ICU split, age structure, seasonality
 
 ### ODE and Gating Functions (simulation_helpers.py)
 
-#### `ode_derivatives_with_vax_and_waning()`
+#### `_master_deriv(y, t, params)`
 
-Core ODE system computing derivatives for all 18 compartments plus 5 accumulators. Implements the complete SEIXHRD dynamics with vaccination, waning, and Hill function gating.
+Core ODE system computing derivatives for all 18 compartments plus 7 accumulators. Implements the complete SEIXHRD dynamics with vaccination, waning, demographics, and Hill function gating. This is an internal function called by the ODE solvers.
+
+#### `_master_deriv_solve_ivp(t, y, params)`
+
+Wrapper for `_master_deriv` with argument order suitable for `scipy.integrate.solve_ivp`.
 
 #### `hill_gate(occupancy, capacity, hill_coef)`
 

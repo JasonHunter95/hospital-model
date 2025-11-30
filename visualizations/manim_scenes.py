@@ -28,12 +28,18 @@ class ModelData:
                 'beta_base': 0.35,
                 'age_params': AGE_PARAMS_EMPIRICAL,
                 'contact_matrix': CONTACT_MATRIX_DEFAULT,
-                'age_pops': [30000, 50000, 20000],
-                'Tmax': 100
+                'age_pops': [120000, 200000, 80000],
+                'Tmax': 100,
+                'ward_capacity': 800,
+                'icu_capacity': 200,
             }
         
         self.params['Tmax'] = 100  # Ensure long enough for visualization
         self.results = simulate_master_hospital_model(**self.params)
+        
+        # Store capacity values for visualization
+        self.ward_capacity = self.params.get('ward_capacity', 800)
+        self.icu_capacity = self.params.get('icu_capacity', 200)
         self.times = np.array(self.results['times'])
         
         # Pre-calculate totals if not present (though model usually returns them)
@@ -47,6 +53,8 @@ class ModelData:
             self.results['H_ICU_total'] = np.sum(self.results['H_icu'], axis=0)
             self.results['R_total'] = np.sum(self.results['R'], axis=0)
             self.results['D_total'] = np.sum(self.results['D'], axis=0)
+            self.results['D_treated_total'] = np.sum(self.results['D_treated'], axis=0)
+            self.results['D_untreated_total'] = np.sum(self.results['D_untreated'], axis=0)
 
     def get_times(self):
         return self.times
@@ -121,6 +129,8 @@ class EpidemicWaveScene(Scene):
             ("ICU", "H_ICU_total", MAROON),
             ("Recovered", "R_total", GREEN),
             ("Deceased", "D_total", GRAY),
+            ("Deaths (Treated)", "D_treated_total", DARK_GRAY),
+            ("Deaths (Untreated)", "D_untreated_total", LIGHT_GRAY),
         ]
 
         legend_items = VGroup()
@@ -190,11 +200,39 @@ class EpidemicWaveScene(Scene):
             color=WHITE, stroke_width=1, stroke_opacity=0.5
         ))
         
+        # Hospital Capacity Lines (dotted)
+        ward_capacity_log = np.log10(data.ward_capacity + 1)
+        icu_capacity_log = np.log10(data.icu_capacity + 1)
+        
+        ward_capacity_line = DashedLine(
+            start=axes.c2p(0, ward_capacity_log),
+            end=axes.c2p(max_time, ward_capacity_log),
+            color=TEAL,
+            stroke_width=2,
+            stroke_opacity=0.7,
+            dash_length=0.15
+        )
+        ward_cap_label = Text(f"Ward Cap: {data.ward_capacity}", font_size=14, color=TEAL)
+        ward_cap_label.next_to(ward_capacity_line, DOWN, buff=0.1)
+        
+        icu_capacity_line = DashedLine(
+            start=axes.c2p(0, icu_capacity_log),
+            end=axes.c2p(max_time, icu_capacity_log),
+            color=MAROON,
+            stroke_width=2,
+            stroke_opacity=0.7,
+            dash_length=0.15
+        )
+        icu_cap_label = Text(f"ICU Cap: {data.icu_capacity}", font_size=14, color=MAROON)
+        icu_cap_label.next_to(icu_capacity_line, DOWN, buff=0.1)
+        
+        capacity_lines = VGroup(ward_capacity_line, ward_cap_label, icu_capacity_line, icu_cap_label)
+        
         day_label = Text("Day: 0", font_size=24).next_to(axes, UP, aligned_edge=LEFT).shift(RIGHT * 0.5)
         day_label.add_updater(lambda m: m.become(Text(f"Day: {int(time_tracker.get_value())}", font_size=24).move_to(day_label.get_center())))
         
         # --- Animation ---
-        self.add(axes, y_labels, x_label, y_label, dashboard_group, curves, scan_line, day_label)
+        self.add(axes, y_labels, x_label, y_label, dashboard_group, curves, scan_line, day_label, capacity_lines)
         
         self.play(
             time_tracker.animate.set_value(max_time),

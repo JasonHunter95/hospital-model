@@ -952,7 +952,7 @@ SCENARIO_COVID_EARLY_2020 = {
 SCENARIO_COVID_DELTA = {
     'name': 'COVID-19 Delta Wave',
     'description': 'High transmission Delta variant with partial vaccination',
-    'beta_base': TRANSMISSION_PRESETS['severe']['beta_base'],
+    'beta_base': TRANSMISSION_PRESETS['high']['beta_base'],
     'age_params': AGE_PARAMS_EMPIRICAL,
     'contact_matrix': CONTACT_MATRIX_DEFAULT,
     'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
