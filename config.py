@@ -474,7 +474,7 @@ HEALTHCARE_SYSTEM_URBAN = {
     'hill_coef_ward': 4,
     'hill_coef_icu': 4,
     'age_pops': [120000, 200000, 80000],  # 400,000 total
-    'beds_per_1000': 1.25,
+    'beds_per_1000': 2.5,
 }
 
 HEALTHCARE_SYSTEM_METROPOLITAN = {
@@ -614,6 +614,10 @@ INITIAL_CONDITIONS_PRESETS = {
 # =======================================================================
 # 9.1 Seasonal Transmission Patterns
 # =======================================================================
+
+# amplitude: fraction increase at peak (e.g., 0.2 = 20% increase)
+# period: days per cycle (typically 365)
+# peak_day: day of year when transmission peaks (0 = Jan 1)
 
 SEASONAL_PARAMS_NONE = {
     'amplitude': 0.0,
@@ -948,7 +952,7 @@ SCENARIO_COVID_EARLY_2020 = {
 SCENARIO_COVID_DELTA = {
     'name': 'COVID-19 Delta Wave',
     'description': 'High transmission Delta variant with partial vaccination',
-    'beta_base': TRANSMISSION_PRESETS['high']['beta_base'],
+    'beta_base': TRANSMISSION_PRESETS['severe']['beta_base'],
     'age_params': AGE_PARAMS_EMPIRICAL,
     'contact_matrix': CONTACT_MATRIX_DEFAULT,
     'healthcare_system': HEALTHCARE_SYSTEM_URBAN,
@@ -957,7 +961,7 @@ SCENARIO_COVID_DELTA = {
     'interventions': INTERVENTION_TIERED_ESCALATING,
     'vaccination': VACCINATION_STRATEGIES['balanced_risk'],
     'VE': VACCINE_EFFICACY_PRESETS['moderate'],  # reduced against Delta
-    'Tmax': 300,
+    'Tmax': 365,
 }
 
 SCENARIO_COVID_OMICRON = {

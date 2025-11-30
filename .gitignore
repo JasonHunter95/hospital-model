@@ -1,7 +1,18 @@
 __pycache__/
-DS_Store
+**DS_Store**
 .ipynb_checkpoints
 .vscode/
 .pytest_cache/
 .venv/
 .conda/
+
+# manim media
+images/
+media/Tex/
+media/texts/
+media/videos/manim_scenes/480p15/partial_movie_files/
+media/videos/manim_scenes/1080p60/partial_movie_files/
+
+.github/
+
+.coverage
