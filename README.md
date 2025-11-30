@@ -2,8 +2,7 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
-https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5
-
+https://github.com/user-attachments/assets/75a7199a-eeef-4745-b692-43fa6fd2b00a
 
 ## Table of Contents
 
