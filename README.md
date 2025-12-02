@@ -126,7 +126,7 @@ Default age groups:
 The extended model splits hospitalization into two stages:
 
 ```text
-S → E → I → X → H_ward → H_icu → R or D
+S → E → I → X_queued → X_admitted → H_ward → H_icu → R or D
 ```
 
 | Compartment | Description |
@@ -214,7 +214,7 @@ The model implements a **Three-Factor Vaccine Model** with vaccinated compartmen
 
 #### Vaccinated Compartments
 
-| Compartment | Description |
+| Compartment | Description |s
 |-------------|-------------|
 | **S_vax** | Vaccinated susceptible - can still be infected (breakthrough) |
 | **E_vax** | Vaccinated exposed - breakthrough infection in latent period |
@@ -287,8 +287,8 @@ Vaccine-induced immunity can wane over time:
 
 ```python
 vaccine_waning_params = {
-    'omega_vax': 0.005,  # Waning rate (~200 day immunity duration)
-    'wane_to_S': True    # Wane to S (unvaccinated) or S_vax (remains vaccinated)
+    'omega_vax': 0.005,  # waning rate (~200 day immunity duration)
+    'wane_to_S': True    # wanes to S (unvaccinated) or S_vax (remains vaccinated)
 }
 ```
 

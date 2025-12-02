@@ -319,7 +319,31 @@ class TestVEInfection:
     """Tests for VE_infection: reduced susceptibility to infection."""
     
     def test_ve_infection_reduces_breakthrough(self, high_vaccination_inputs):
-        """Higher VE_infection should result in fewer infections among vaccinated."""
+        """
+        Verify that VE_infection reduces breakthrough infections in vaccinated individuals.
+        
+        Three-Factor Vaccine Model - Factor 1: VE_infection
+        ----------------------------------------------------
+        VE_infection reduces the susceptibility of vaccinated individuals to infection.
+        Mechanistically: λ_vax = (1 - VE_infection) * λ
+        
+        Where:
+        - λ = force of infection for unvaccinated
+        - λ_vax = force of infection for vaccinated
+        
+        Expected Behavior:
+        ------------------
+        Higher VE_infection should result in:
+        - Fewer S_vax → E_vax transitions
+        - Lower peak I_vax (breakthrough infections)
+        - Lower cumulative R_vax (recovered from breakthrough)
+        
+        This test compares two scenarios:
+        - Low VE_infection (0.3): 30% protection from infection
+        - High VE_infection (0.9): 90% protection from infection
+        
+        The high VE scenario should show significantly fewer breakthrough infections.
+        """
         result_low_ve = simulate_master_hospital_model(
             **{**high_vaccination_inputs, 'VE_infection': 0.3}
         )
@@ -338,7 +362,33 @@ class TestVEInfection:
             "Higher VE_infection should reduce vaccinated infections"
     
     def test_perfect_ve_infection_blocks_infection(self, minimal_inputs):
-        """VE_infection=1.0 should completely prevent infection of vaccinated."""
+        """
+        Verify that perfect VE_infection (1.0) completely prevents infection.
+        
+        Edge Case Test: VE_infection = 1.0
+        -----------------------------------
+        When VE_infection = 1.0:
+        - λ_vax = (1 - 1.0) * λ = 0
+        - Vaccinated individuals have ZERO force of infection
+        - No S_vax → E_vax transitions should occur
+        
+        Test Setup:
+        -----------
+        - Start with vaccinated susceptibles (S_vax > 0)
+        - Seed infections in unvaccinated population (I > 0)
+        - Run simulation with high transmission (epidemic occurs)
+        - Set VE_severe = 0 and VE_death = 0 (isolate VE_infection effect)
+        
+        Expected Outcome:
+        -----------------
+        - E_vax should remain exactly 0 (no exposures)
+        - I_vax should remain exactly 0 (no infections)
+        - S_vax should remain constant (no infections, no vaccination)
+        
+        This is a critical edge case that validates the VE_infection implementation.
+        If this test fails, it indicates a bug in the force of infection calculation
+        for vaccinated individuals.
+        """
         result = simulate_master_hospital_model(
             **minimal_inputs,
             vaccination_rate=0.02,
@@ -370,7 +420,39 @@ class TestVESevere:
     """Tests for VE_severe: reduced progression to severe disease."""
     
     def test_ve_severe_reduces_severe_cases(self, minimal_inputs):
-        """Higher VE_severe should reduce X_vax relative to I_vax."""
+        """
+        Verify that VE_severe reduces progression from I_vax to X_vax.
+        
+        Three-Factor Vaccine Model - Factor 2: VE_severe
+        -------------------------------------------------
+        VE_severe reduces the probability that an infected vaccinated individual
+        progresses to severe disease requiring hospitalization.
+        
+        Mechanistically: σ_vax = (1 - VE_severe) * σ
+        
+        Where:
+        - σ = progression rate from I to X (unvaccinated)
+        - σ_vax = progression rate from I_vax to X_vax (vaccinated)
+        
+        Compensatory Recovery:
+        ----------------------
+        To maintain the same total exit rate from I_vax as from I:
+        γ_I_vax = γ_I + (σ - σ_vax)
+        
+        This ensures that the time spent in I_vax equals time in I, but with
+        more individuals recovering and fewer progressing to severe disease.
+        
+        Test Design:
+        ------------
+        - Allow breakthrough infections (VE_infection = 0.3)
+        - Start with vaccinated susceptibles and seed infections
+        - Compare low VE_severe (0.2) vs high VE_severe (0.9)
+        
+        Expected Outcome:
+        -----------------
+        Peak X_vax should be lower with higher VE_severe, indicating that
+        fewer breakthrough infections progress to severe disease.
+        """
         # Create scenario with breakthrough infections
         inputs = {
             **minimal_inputs,
@@ -395,7 +477,35 @@ class TestVESevere:
             "Higher VE_severe should reduce peak severe cases in vaccinated"
     
     def test_perfect_ve_severe_no_severe_disease(self, minimal_inputs):
-        """VE_severe=1.0 should prevent any severe disease in vaccinated."""
+        """
+        Verify that perfect VE_severe (1.0) completely prevents severe disease.
+        
+        Edge Case Test: VE_severe = 1.0
+        --------------------------------
+        When VE_severe = 1.0:
+        - σ_vax = (1 - 1.0) * σ = 0
+        - No I_vax → X_vax transitions occur
+        - All vaccinated infections remain mild (recover from I_vax)
+        
+        Test Setup:
+        -----------
+        - Start with vaccinated infected individuals (I_vax > 0)
+        - Set VE_infection = 0 (allow infections, isolate VE_severe effect)
+        - Set VE_death = 0 (isolate VE_severe effect)
+        - No new vaccinations (focus on existing I_vax)
+        
+        Expected Outcome:
+        -----------------
+        - X_vax should remain exactly 0 throughout simulation
+        - I_vax should decrease as individuals recover
+        - R_vax should increase (all I_vax recover, none progress to X_vax)
+        
+        Clinical Interpretation:
+        ------------------------
+        This represents a vaccine that provides no protection from infection
+        but completely prevents severe disease. All breakthrough infections
+        remain mild and resolve without hospitalization.
+        """
         result = simulate_master_hospital_model(
             **minimal_inputs,
             vaccination_rate=0.0,  # No new vaccinations

@@ -1,4 +1,4 @@
-from manim import *
+from manim import * # type: ignore
 import sys
 import os
 import numpy as np
@@ -8,16 +8,30 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from master_hospital_model import simulate_master_hospital_model
-    from config_helpers import get_scenario_params
+    from config_helpers import (
+        get_scenario_params, compare_vaccine_profiles, compare_healthcare_systems,
+        create_intervention_comparison, get_vaccine_profile, list_vaccine_profiles
+    )
+    from config import (
+        INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
+        INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
+    )
 except ImportError:
     # Fallback for when running from different contexts
     sys.path.append("..")
     from master_hospital_model import simulate_master_hospital_model
-    from config_helpers import get_scenario_params
+    from config_helpers import (
+        get_scenario_params, compare_vaccine_profiles, compare_healthcare_systems,
+        create_intervention_comparison, get_vaccine_profile, list_vaccine_profiles
+    )
+    from config import (
+        INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
+        INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
+    )
 
 class ModelData:
     """Helper class to run simulation and fetch data for animations."""
-    def __init__(self, scenario='covid_delta'):
+    def __init__(self, scenario='bad_covid_but_theres_a_vaccine'):
         try:
             self.params = get_scenario_params(scenario)
         except:
@@ -112,7 +126,7 @@ class EpidemicWaveScene(Scene):
             y_labels.add(label)
         
         x_label = axes.get_x_axis_label("Time (Days)").scale(0.6).next_to(axes, DOWN, buff=0.1)
-        y_label = axes.get_y_axis_label("Population").scale(0.6).rotate(90 * DEGREES).next_to(axes, LEFT, buff=0.4)
+        y_label = axes.get_y_axis_label("Population (Log Scaled)").scale(0.6).rotate(90 * DEGREES).next_to(axes, LEFT, buff=0.4)
 
         # --- Dashboard ---
         dashboard_group = VGroup()
@@ -123,12 +137,12 @@ class EpidemicWaveScene(Scene):
             ("Susceptible", "S_total", BLUE),
             ("Exposed", "E_total", YELLOW),
             ("Infectious", "I_total", RED),
-            ("Severe (Adm)", "X_admitted_total", PURPLE),
             ("Severe (Que)", "X_queued_total", ORANGE),
+            ("Severe (Adm)", "X_admitted_total", PURPLE),
             ("Ward", "H_ward_total", TEAL),
             ("ICU", "H_ICU_total", MAROON),
             ("Recovered", "R_total", GREEN),
-            ("Deceased", "D_total", GRAY),
+            ("Total Deaths", "D_total", GRAY),
             ("Deaths (Treated)", "D_treated_total", DARK_GRAY),
             ("Deaths (Untreated)", "D_untreated_total", LIGHT_GRAY),
         ]
@@ -240,3 +254,266 @@ class EpidemicWaveScene(Scene):
             rate_func=linear
         )
         self.wait()
+
+
+# =============================================================================
+# COMPARISON DATA HELPER
+# =============================================================================
+
+def _to_array(data):
+    """Convert list of scalar arrays or list to numpy array."""
+    if isinstance(data, np.ndarray):
+        return data
+    if isinstance(data, list):
+        # Could be list of 0-d arrays or list of scalars
+        return np.array([float(x) for x in data])
+    return np.array(data)
+
+
+def _compute_totals(results):
+    """Compute missing _total keys by summing age groups."""
+    # Ensure times is array
+    results['times'] = _to_array(results['times'])
+    
+    # Convert existing _total keys to proper arrays
+    for key in list(results.keys()):
+        if key.endswith('_total') and isinstance(results[key], list):
+            results[key] = _to_array(results[key])
+    
+    # Compute S_total, R_total if missing (by summing age groups)
+    if 'S_total' not in results and 'S' in results:
+        results['S_total'] = np.sum([_to_array(s) for s in results['S']], axis=0)
+    if 'R_total' not in results and 'R' in results:
+        results['R_total'] = np.sum([_to_array(r) for r in results['R']], axis=0)
+    
+    # Compute X_admitted_total and X_queued_total
+    if 'X_admitted_total' not in results and 'X_admitted' in results:
+        results['X_admitted_total'] = np.sum([_to_array(x) for x in results['X_admitted']], axis=0)
+    if 'X_queued_total' not in results and 'X_queued' in results:
+        results['X_queued_total'] = np.sum([_to_array(x) for x in results['X_queued']], axis=0)
+    
+    # Convert beta_t, g_ward, g_icu, etc.
+    for key in ['beta_t', 'g_ward', 'g_icu', 'policy_mult', 'seasonal_factor']:
+        if key in results and isinstance(results[key], list):
+            results[key] = _to_array(results[key])
+    
+    return results
+
+
+class ComparisonData:
+    """
+    Helper class to run multiple scenario simulations for comparison animations.
+    
+    Usage:
+        scenarios = compare_vaccine_profiles('covid_delta', ['mrna_original', 'inactivated'])
+        data = ComparisonData(scenarios, Tmax=150)
+        
+        for name in data.scenario_names:
+            deaths = data.get_curve(name, 'D_total')
+    """
+    def __init__(self, scenario_params: dict, Tmax: int = 200):
+        """
+        Args:
+            scenario_params: Dict mapping scenario names to parameter dicts
+            Tmax: Maximum simulation time (overrides individual scenario Tmax)
+        """
+        self.scenario_names = list(scenario_params.keys())
+        self.results = {}
+        self.Tmax = Tmax
+        
+        for name, params in scenario_params.items():
+            params_copy = params.copy()
+            params_copy['Tmax'] = Tmax
+            raw_results = simulate_master_hospital_model(**params_copy)
+            self.results[name] = _compute_totals(raw_results)
+        
+        # Store common time array from first scenario
+        first_name = self.scenario_names[0]
+        self.times = self.results[first_name]['times']
+    
+    def get_times(self):
+        return self.times
+    
+    def get_curve(self, scenario_name: str, key: str):
+        """Get time series data for a specific scenario and key."""
+        return self.results[scenario_name][key]
+    
+    def get_value_at_time(self, scenario_name: str, key: str, t: float):
+        """Interpolate value at specific time t."""
+        return np.interp(t, self.times, self.results[scenario_name][key])
+    
+    def get_final_value(self, scenario_name: str, key: str):
+        """Get final value of a time series."""
+        return self.results[scenario_name][key][-1]
+    
+    def get_max_value(self, key: str):
+        """Get maximum value across all scenarios for scaling."""
+        return max(np.max(self.results[name][key]) for name in self.scenario_names)
+
+
+# =============================================================================
+# SCENE 2: VACCINE COMPARISON
+# =============================================================================
+
+class VaccineComparisonScene(Scene):
+    """
+    Animated comparison of different vaccine profiles showing:
+    - Racing cumulative death curves
+    - Three-factor efficacy breakdown (VE_infection, VE_severe, VE_death)
+    - Final outcome comparison
+    
+    Duration: ~60 seconds for 150 days
+    """
+    
+    # Color palette for different vaccine profiles (distinct, colorblind-friendly)
+    VACCINE_COLORS = {
+        'no_vaccine': GRAY,
+        'minimal': RED_C,
+        'inactivated': ORANGE,
+        'adenovirus': YELLOW_C,
+        'mrna_original': GREEN_C,
+        'mrna_omicron': TEAL_C,
+        'ideal': BLUE_C,
+    }
+    
+    def construct(self):
+        # === Setup: Load comparison data ===
+        profiles_to_compare = ['minimal', 'inactivated', 'ideal']
+        scenario_params = compare_vaccine_profiles(
+            'bad_covid_but_theres_a_vaccine', 
+            profiles_to_compare,
+            include_no_vaccine=True
+        )
+        
+        max_time = 150
+        data = ComparisonData(scenario_params, Tmax=max_time)
+        
+        # === Phase 1: Title and Introduction (0-5s) ===
+        title = Text("Vaccine Efficacy Comparison", font_size=36, weight=BOLD)
+        title_group = VGroup(title).arrange(DOWN, buff=0.3)
+        title_group.to_edge(UP, buff=0.4)
+        
+        self.play(FadeIn(title_group), run_time=1.5)
+        self.wait(0.5)
+        
+        # === Build Main Axes (left 60% of screen) ===
+        y_max = data.get_max_value('D_total') * 1.15
+        
+        axes = Axes(
+            x_range=[0, max_time, 30],
+            y_range=[0, y_max, y_max/5],
+            x_length=7.5,
+            y_length=4.5,
+            axis_config={"color": WHITE, "include_numbers": False, "font_size": 18},
+            tips=False,
+        ).shift(LEFT * 1.5 + DOWN * 0.5)
+        
+        # X-axis labels
+        x_nums = VGroup()
+        for x in range(0, max_time + 1, 30):
+            label = Text(str(x), font_size=14)
+            label.next_to(axes.c2p(x, 0), DOWN, buff=0.15)
+            x_nums.add(label)
+        
+        # Y-axis labels (formatted with K suffix)
+        y_nums = VGroup()
+        for y in np.linspace(0, y_max, 6):
+            if y >= 1000:
+                label_text = f"{y/1000:.1f}K"
+            else:
+                label_text = f"{int(y)}"
+            label = Text(label_text, font_size=14)
+            label.next_to(axes.c2p(0, y), LEFT, buff=0.15)
+            y_nums.add(label)
+        
+        x_label = Text("Days", font_size=16).next_to(axes, DOWN, buff=0.4)
+        y_label = Text("Cumulative Deaths", font_size=16).rotate(90 * DEGREES)
+        y_label.next_to(axes, LEFT, buff=0.9)
+        
+        # === Build Legend (right side) ===
+        legend = VGroup()
+        time_tracker = ValueTracker(0)
+        
+        # Order: worst to best for visual clarity
+        display_order = ['no_vaccine', 'minimal', 'inactivated', 'ideal']
+        
+        for name in display_order:
+            if name not in data.scenario_names:
+                continue
+            color = self.VACCINE_COLORS.get(name, WHITE)
+            
+            # Row: colored square + label + live death count
+            square = Square(side_length=0.22, fill_color=color, fill_opacity=1, stroke_width=0)
+            
+            # Clean up display name
+            display_name = name.replace('_', ' ').title()
+            if len(display_name) > 12:
+                display_name = display_name[:12]
+            label = Text(display_name, font_size=15, color=WHITE)
+            if label.width > 1.4:
+                label.width = 1.4  # Cap width using property setter
+            
+            # Death counter
+            death_num = DecimalNumber(0, num_decimal_places=0, font_size=15, color=color)
+            
+            def make_death_updater(scenario_name, num_obj):
+                return lambda m: m.set_value(
+                    data.get_value_at_time(scenario_name, 'D_total', time_tracker.get_value())
+                )
+            death_num.add_updater(make_death_updater(name, death_num))
+            
+            row = VGroup(square, label, death_num).arrange(RIGHT, buff=0.15)
+            legend.add(row)
+        
+        legend.arrange(DOWN, aligned_edge=LEFT, buff=0.25)
+        legend.to_edge(RIGHT, buff=0.4).shift(UP * 0.3)
+        
+        # Day counter
+        day_label = Text("Day: 0", font_size=20)
+        day_label.next_to(axes, UP, buff=0.15)
+        day_label.add_updater(lambda m: m.become(
+            Text(f"Day: {int(time_tracker.get_value())}", font_size=20).move_to(m.get_center())
+        ))
+        
+        # === Prepare Curve Data ===
+        mask = data.times <= max_time
+        times_clipped = data.times[mask]
+        
+        curve_points = {}
+        for name in data.scenario_names:
+            values = data.results[name]['D_total'][mask]
+            points = [axes.c2p(x, y) for x, y in zip(times_clipped, values)]
+            curve_points[name] = points
+        
+        # === Create Animated Curves ===
+        curves = VGroup()
+        for name in display_order:
+            if name not in data.scenario_names:
+                continue
+            color = self.VACCINE_COLORS.get(name, WHITE)
+            curve = VMobject().set_color(color).set_stroke(width=2.5)
+            
+            def make_curve_updater(scenario_name, pts):
+                def updater(mob):
+                    t = time_tracker.get_value()
+                    idx = np.searchsorted(times_clipped, t)
+                    if idx > 1:
+                        mob.set_points_as_corners(pts[:idx])
+                return updater
+            
+            curve.add_updater(make_curve_updater(name, curve_points[name]))
+            curves.add(curve)
+        
+        # === Phase 2: Show axes and start animation (5-50s) ===
+        axes_group = VGroup(axes, x_nums, y_nums, x_label, y_label)
+        self.play(Create(axes_group), run_time=1.5)
+        self.play(FadeIn(legend), FadeIn(day_label), run_time=1)
+        
+        self.add(curves)
+        
+        # Main animation: curves racing
+        self.play(
+            time_tracker.animate.set_value(max_time),
+            run_time=40,
+            rate_func=linear
+        )

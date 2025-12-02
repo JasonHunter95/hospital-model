@@ -168,7 +168,37 @@ class TestDemographicIntegration:
         assert results['cum_background_deaths_total'][-1] == pytest.approx(0.0, abs=1e-6)
     
     def test_births_increase_population(self, high_birth_rate_inputs):
-        """Test that births increase the live population."""
+        """
+        Verify that births increase the live population in an open population model.
+        
+        Open Population Dynamics:
+        -------------------------
+        Unlike closed population models where total population is constant,
+        open population models allow births and background deaths.
+        
+        Birth Mechanism:
+        ----------------
+        Births enter the S compartment (or S_vax if neonatal vaccination is enabled).
+        The birth rate is applied to the total live population:
+        
+        dS/dt += birth_rate * N_live * (1 - neonatal_vax_rate)
+        dS_vax/dt += birth_rate * N_live * neonatal_vax_rate
+        
+        Population Balance:
+        -------------------
+        For an open population:
+        N_final = N_initial + cumulative_births - cumulative_deaths
+        
+        Where cumulative_deaths = disease_deaths + background_deaths
+        
+        Test Validation:
+        ----------------
+        This test verifies:
+        1. Cumulative births are tracked correctly
+        2. Live population increases by approximately cumulative births
+           (accounting for disease deaths)
+        3. The population balance equation holds
+        """
         results = simulate_master_hospital_model(**high_birth_rate_inputs)
         
         initial_pop = sum(high_birth_rate_inputs['age_pops'])
@@ -272,7 +302,43 @@ class TestPopulationConservation:
     """Tests for population conservation accounting with demographics."""
     
     def test_population_balance_equation(self, demographic_inputs):
-        """Test the population balance: N_final = N_initial + births - deaths."""
+        """
+        Verify the fundamental population balance equation for open populations.
+        
+        The Population Balance Equation:
+        ---------------------------------
+        For an open population with births and background deaths:
+        
+        N_live(t) + D_disease(t) = N_initial + cumulative_births - cumulative_background_deaths
+        
+        Where:
+        - N_live(t): Total living population at time t (all compartments except D, D_vax)
+        - D_disease(t): Cumulative disease deaths (D + D_vax)
+        - N_initial: Initial total population
+        - cumulative_births: Total births from t=0 to t
+        - cumulative_background_deaths: Total background deaths from t=0 to t
+        
+        Why This Matters:
+        -----------------
+        This equation is the conservation law for open populations. It ensures:
+        1. All individuals are accounted for at all times
+        2. Births and deaths are tracked correctly
+        3. No 'leaks' exist in the population accounting
+        
+        Distinction from Closed Population:
+        ------------------------------------
+        Closed population: N_total = constant
+        Open population: N_total = N_initial + net_migration + births - all_deaths
+        
+        In our model, we don't include migration, so:
+        N_total = N_initial + births - background_deaths - disease_deaths
+        
+        Rearranging:
+        N_live + D_disease = N_initial + births - background_deaths
+        
+        This test is critical for validating the demographic implementation.
+        If it fails, there is a fundamental error in the population accounting.
+        """
         results = simulate_master_hospital_model(**demographic_inputs)
         
         n_ages = 3

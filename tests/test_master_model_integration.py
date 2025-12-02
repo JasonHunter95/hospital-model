@@ -33,31 +33,83 @@ class TestSmoke:
     """Basic smoke tests to verify function runs without errors."""
     
     def test_minimal_inputs_run(self, minimal_inputs):
-        """Function should run with minimal valid inputs."""
+        """
+        Verify that the simulation runs successfully with minimal valid inputs.
+        
+        This is the most basic smoke test ensuring the function executes without
+        errors or exceptions. It validates that the simulation can start and complete
+        with the bare minimum required parameters.
+        
+        Expected behavior:
+        - Function completes without raising exceptions
+        - Returns a non-None result
+        - Result is a dictionary containing simulation outputs
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         assert results is not None
         assert isinstance(results, dict)
     
     def test_returns_dict(self, minimal_inputs):
-        """Function should return a dictionary."""
+        """
+        Verify that the simulation returns results in dictionary format.
+        
+        The function's API contract specifies that results should be returned
+        as a dictionary for easy access to different output components (compartments,
+        time series, metadata, etc.).
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         assert isinstance(results, dict)
     
     def test_times_array_present(self, minimal_inputs):
-        """Results should contain 'times' array."""
+        """
+        Verify that results include a non-empty 'times' array.
+        
+        The 'times' array is fundamental to the simulation output as it provides
+        the temporal index for all compartment time series. Without it, the
+        time-series data would be meaningless.
+        
+        Expected behavior:
+        - 'times' key exists in results dictionary
+        - 'times' array contains at least one time point
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         assert 'times' in results
         assert len(results['times']) > 0
     
     def test_all_compartments_present(self, minimal_inputs):
-        """Results should contain all compartment arrays."""
+        """
+        Verify that all core SEIXHRD compartments are present in results.
+        
+        The model implements a SEIXHRD structure:
+        - S: Susceptible
+        - E: Exposed (infected but not yet infectious)
+        - I: Infectious (community cases)
+        - X: Severe cases (queued or admitted for hospitalization)
+        - H_ward: Ward hospitalizations
+        - H_icu: ICU hospitalizations
+        - H: Total hospitalizations (H_ward + H_icu)
+        - R: Recovered
+        - D: Deaths
+        
+        All of these compartments must be present for the model to be complete.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         required_keys = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D', 'H']
         for key in required_keys:
             assert key in results, f"Missing key: {key}"
     
     def test_aggregated_totals_present(self, minimal_inputs):
-        """Results should contain aggregated totals."""
+        """
+        Verify that age-aggregated totals are present in results.
+        
+        For convenience and analysis, the simulation provides pre-aggregated
+        totals that sum across all age groups. These are essential for:
+        - Quick visualization of overall epidemic dynamics
+        - Comparing total burden across scenarios
+        - Avoiding repeated summation in downstream analysis
+        
+        Each total represents the sum across all age groups for that compartment.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         required_keys = [
             'H_ward_total', 'H_icu_total', 'H_total',
@@ -67,7 +119,20 @@ class TestSmoke:
             assert key in results, f"Missing key: {key}"
     
     def test_capacity_metrics_present(self, minimal_inputs):
-        """Results should contain capacity metrics."""
+        """
+        Verify that hospital capacity metrics are present in results.
+        
+        The model tracks healthcare system strain through several metrics:
+        - ward_overflow: Instantaneous ward demand exceeding capacity
+        - icu_overflow: Instantaneous ICU demand exceeding capacity
+        - cum_ward_overflow: Cumulative ward overflow (person-days)
+        - cum_icu_overflow: Cumulative ICU overflow (person-days)
+        - g_ward: Ward gating factor (fraction of demand that can be met)
+        - g_icu: ICU gating factor (fraction of demand that can be met)
+        
+        These metrics are critical for assessing healthcare system resilience
+        and the impact of capacity constraints on patient outcomes.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         required_keys = [
             'ward_overflow', 'icu_overflow',
@@ -78,14 +143,38 @@ class TestSmoke:
             assert key in results, f"Missing key: {key}"
     
     def test_time_varying_params_present(self, minimal_inputs):
-        """Results should contain time-varying parameters."""
+        """
+        Verify that time-varying parameter arrays are present in results.
+        
+        The model supports time-varying transmission dynamics through:
+        - beta_t: Effective transmission rate at each time point
+        - seasonal_factor: Seasonal modulation of transmission
+        - policy_mult: Policy intervention multiplier (e.g., lockdowns)
+        
+        These arrays allow reconstruction of the exact transmission conditions
+        at each point in the simulation, which is essential for understanding
+        how interventions and seasonality affect epidemic dynamics.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         required_keys = ['beta_t', 'seasonal_factor', 'policy_mult']
         for key in required_keys:
             assert key in results, f"Missing key: {key}"
     
     def test_metadata_present(self, minimal_inputs):
-        """Results should contain metadata."""
+        """
+        Verify that simulation metadata is included in results.
+        
+        Metadata provides context for interpreting simulation results:
+        - ward_capacity: Total ward bed capacity used in simulation
+        - icu_capacity: Total ICU bed capacity used in simulation
+        - age_pops: Population size for each age group
+        - parameters: Complete parameter set used in simulation
+        
+        This metadata is essential for:
+        - Reproducibility (knowing exact parameters used)
+        - Interpretation (understanding capacity constraints)
+        - Comparison (ensuring consistent parameters across runs)
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         assert 'ward_capacity' in results
         assert 'icu_capacity' in results
@@ -101,13 +190,31 @@ class TestOutputStructure:
     """Tests for output dimensions and types."""
     
     def test_compartments_have_correct_age_dimensions(self, minimal_inputs, n_ages):
-        """Each compartment should have n_ages sub-arrays."""
+        """
+        Verify that each compartment has the correct age stratification.
+        
+        The model is age-stratified, meaning each compartment is subdivided
+        by age group. This test ensures that every compartment has exactly
+        n_ages sub-arrays, one for each age group.
+        
+        This is a structural invariant: if age dimensions are wrong, all
+        downstream analysis will fail or produce incorrect results.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         for compartment in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
             assert len(results[compartment]) == n_ages
     
     def test_compartment_time_series_length(self, minimal_inputs):
-        """Compartment time series should match times length."""
+        """
+        Verify that all compartment time series match the length of the times array.
+        
+        Each compartment's time series (for each age group) must have the same
+        number of points as the 'times' array. This ensures proper alignment
+        between time points and compartment values.
+        
+        Mismatched lengths would indicate a bug in the ODE solver integration
+        or the output collection logic.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         n_times = len(results['times'])
         for compartment in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
@@ -115,33 +222,71 @@ class TestOutputStructure:
                 assert len(age_series) == n_times
     
     def test_aggregated_totals_length(self, minimal_inputs):
-        """Aggregated totals should match times length."""
+        """
+        Verify that aggregated total arrays match the length of the times array.
+        
+        Age-aggregated totals (summed across all age groups) must have the
+        same temporal resolution as the individual compartments. This ensures
+        consistency between age-stratified and aggregated views of the data.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         n_times = len(results['times'])
         for key in ['H_ward_total', 'H_icu_total', 'H_total', 'D_total']:
             assert len(results[key]) == n_times
     
     def test_times_are_monotonic(self, minimal_inputs):
-        """Times should be strictly monotonically increasing."""
+        """
+        Verify that the times array is strictly monotonically increasing.
+        
+        Time must always move forward in a simulation. This test ensures that:
+        - No time points are duplicated
+        - Time never goes backwards
+        - The ODE solver is progressing correctly
+        
+        Violations would indicate a serious bug in the solver or time step logic.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         times = results['times']
         for i in range(1, len(times)):
             assert times[i] > times[i-1]
     
     def test_times_start_at_zero(self, minimal_inputs):
-        """Times should start at 0."""
+        """
+        Verify that the simulation starts at time t=0.
+        
+        By convention, all simulations start at t=0. This provides a consistent
+        reference point for interpreting results and comparing across scenarios.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         assert results['times'][0] == 0
     
     def test_times_end_near_tmax(self, minimal_inputs):
-        """Times should end at approximately Tmax."""
+        """
+        Verify that the simulation runs until approximately Tmax.
+        
+        The simulation should continue until it reaches or slightly exceeds
+        the specified maximum time (Tmax). A small tolerance is allowed for
+        floating-point arithmetic and adaptive time stepping.
+        
+        This ensures the simulation runs for the full requested duration.
+        """
         inputs = {**minimal_inputs, 'Tmax': 100, 'time_step': 0.1}
         results = simulate_master_hospital_model(**inputs)
         # Allow small floating point tolerance
         assert results['times'][-1] >= 100 - 0.1
     
     def test_h_equals_h_ward_plus_h_icu(self, minimal_inputs):
-        """H should equal H_ward + H_icu for each age group."""
+        """
+        Verify that total hospitalizations equal ward plus ICU hospitalizations.
+        
+        This is a fundamental accounting identity: H = H_ward + H_icu.
+        
+        The model tracks ward and ICU hospitalizations separately, but also
+        provides a total H for convenience. This test ensures these values
+        are consistent at every time point and for every age group.
+        
+        Violations would indicate a bug in the aggregation logic.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         for a in range(n_ages):
@@ -158,7 +303,24 @@ class TestPopulationConservation:
     """Tests for population conservation law."""
     
     def test_total_population_conserved(self, minimal_inputs):
-        """Total population should be conserved (S + E + I + X + H + R + D = N)."""
+        """
+        Verify that total population remains constant throughout the simulation.
+        
+        This is the fundamental conservation law for a closed population system:
+        S + E + I + X + H_ward + H_icu + R + D = N (constant)
+        
+        This ensures there are no 'leaks' in the ODE system where individuals
+        are created or destroyed unaccounted for. Every person must be in exactly
+        one compartment at all times.
+        
+        Mathematical basis:
+        If the sum of all compartment derivatives equals zero (dS + dE + dI + ... = 0),
+        then the total population is conserved. This test verifies the numerical
+        implementation maintains this property.
+        
+        Note: A small tolerance (1%) is allowed for numerical integration errors
+        that accumulate over time with the Euler method.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         total_pop = sum(minimal_inputs['age_pops'])
         n_ages = len(minimal_inputs['age_pops'])
@@ -180,7 +342,19 @@ class TestPopulationConservation:
                 f"Population not conserved at t={results['times'][t_idx]}"
     
     def test_population_conserved_per_age_group(self, minimal_inputs):
-        """Population should be conserved within each age group."""
+        """
+        Verify that population is conserved within each age group independently.
+        
+        In addition to total population conservation, the model should conserve
+        population within each age group. Individuals do not age or move between
+        age groups during the simulation.
+        
+        This is a stronger invariant than total conservation: it ensures that
+        the age structure is preserved and that there are no cross-age leaks
+        in the implementation.
+        
+        For each age group a: S_a + E_a + I_a + X_a + H_a + R_a + D_a = N_a (constant)
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         
@@ -200,7 +374,21 @@ class TestPopulationConservation:
                 assert pop_at_t == pytest.approx(age_pop, rel=0.01)
     
     def test_population_conserved_long_simulation(self, long_simulation_inputs):
-        """Population conservation should hold for long simulations."""
+        """
+        Verify that population conservation holds even for extended simulations.
+        
+        This is a stress test for numerical stability. Longer simulations with
+        larger time steps accumulate more numerical error. This test ensures
+        that population conservation is maintained even under these conditions.
+        
+        A slightly larger tolerance (2%) is allowed to account for:
+        - Accumulated integration errors over many time steps
+        - Potentially larger time steps in long simulations
+        - Floating-point arithmetic limitations
+        
+        If this test fails but shorter simulations pass, it indicates numerical
+        instability that may require smaller time steps or a higher-order integrator.
+        """
         results = simulate_master_hospital_model(**long_simulation_inputs)
         total_pop = sum(long_simulation_inputs['age_pops'])
         n_ages = len(long_simulation_inputs['age_pops'])
@@ -230,7 +418,22 @@ class TestDeathMonotonicity:
     """Tests for death monotonicity (deaths can only increase)."""
     
     def test_deaths_monotonically_increasing(self, minimal_inputs):
-        """Total deaths should be monotonically non-decreasing."""
+        """
+        Verify that total deaths are monotonically non-decreasing over time.
+        
+        This is a fundamental physical constraint: once someone has died, they
+        cannot un-die. The cumulative death count (D) must never decrease.
+        
+        Mathematically: dD/dt >= 0 for all t
+        
+        This test ensures:
+        - The death compartment is implemented as a cumulative tracker
+        - There are no bugs causing negative death flows
+        - Numerical errors don't cause backwards time evolution
+        
+        A small tolerance (1e-10) allows for floating-point rounding errors
+        while still catching any real violations of monotonicity.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         D_total = results['D_total']
         
@@ -239,7 +442,20 @@ class TestDeathMonotonicity:
                 f"Deaths decreased at time {results['times'][i]}"
     
     def test_deaths_per_age_monotonically_increasing(self, minimal_inputs):
-        """Deaths per age group should be monotonically non-decreasing."""
+        """
+        Verify that deaths are monotonically non-decreasing within each age group.
+        
+        This is a stronger test than total death monotonicity. Not only must
+        total deaths increase, but deaths within each age group must also
+        increase independently.
+        
+        This ensures:
+        - Age-stratified death tracking is implemented correctly
+        - There are no cross-age accounting errors
+        - Each age group's death compartment behaves properly
+        
+        For each age group a: D_a(t+1) >= D_a(t)
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         
@@ -249,7 +465,19 @@ class TestDeathMonotonicity:
                 assert D_age[i] >= D_age[i-1] - 1e-10
     
     def test_treated_deaths_monotonically_increasing(self, minimal_inputs):
-        """Treated deaths should be monotonically non-decreasing."""
+        """
+        Verify that treated deaths are monotonically non-decreasing.
+        
+        The model tracks deaths by treatment status (treated vs untreated).
+        Treated deaths include those who died while receiving medical care:
+        - Community deaths from I (treated by definition for mild cases)
+        - Deaths from X_admitted (secured hospital bed)
+        - Deaths in H_ward (ward care)
+        - Deaths in H_icu (ICU care)
+        
+        This compartment must also be monotonically increasing, as it's a
+        cumulative tracker of a specific subset of deaths.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         D_treated = results['D_treated_total']
         
@@ -257,7 +485,20 @@ class TestDeathMonotonicity:
             assert D_treated[i] >= D_treated[i-1] - 1e-10
     
     def test_untreated_deaths_monotonically_increasing(self, minimal_inputs):
-        """Untreated deaths should be monotonically non-decreasing."""
+        """
+        Verify that untreated deaths are monotonically non-decreasing.
+        
+        Untreated deaths include those who died without adequate medical care:
+        - Deaths from X_queued (waiting for hospital bed, none available)
+        - ICU-denied deaths from H_ward (needed ICU but none available)
+        
+        These deaths represent the impact of healthcare system capacity constraints.
+        Like all death compartments, this must be monotonically increasing.
+        
+        This test is particularly important for validating the capacity-constrained
+        dynamics of the model, as untreated deaths only occur when the system
+        is overwhelmed.
+        """
         results = simulate_master_hospital_model(**minimal_inputs)
         D_untreated = results['D_untreated_total']
         
@@ -397,7 +638,7 @@ class TestInputValidation:
     def test_age_pops_required(self, minimal_inputs):
         """age_pops should be required."""
         del minimal_inputs['age_pops']
-        with pytest.raises(ValueError, match="age_pops"):
+        with pytest.raises(TypeError, match="age_pops"):
             simulate_master_hospital_model(**minimal_inputs)
     
     def test_mismatched_dimensions_raises(self, minimal_inputs):

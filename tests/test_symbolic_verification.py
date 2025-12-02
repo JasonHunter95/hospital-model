@@ -147,9 +147,35 @@ class TestSymbolicPopulationConservation:
     
     def test_closed_population_conservation_unvaccinated(self):
         """
-        Verify: dS + dE + dI + dX_queued + dX_admitted + dH_ward + dH_icu + dR + dD = 0
+        Symbolically verify population conservation for unvaccinated pathway.
         
-        For the unvaccinated pathway only, in a closed system.
+        Mathematical Proof:
+        -------------------
+        For a closed population (no births/deaths from demographics), the sum
+        of all compartment derivatives must equal zero:
+        
+        dS + dE + dI + dX_queued + dX_admitted + dH_ward + dH_icu + dR + dD = 0
+        
+        This is the fundamental conservation law: individuals can move between
+        compartments but cannot be created or destroyed. If this sum is non-zero,
+        there is a 'leak' in the ODE system.
+        
+        Why This Matters:
+        -----------------
+        - Ensures mathematical consistency of the model
+        - Validates that all flows are properly balanced
+        - Catches implementation errors where flows don't cancel out
+        - Provides confidence that numerical integration errors are the only
+          source of population drift (not structural bugs)
+        
+        Method:
+        -------
+        Uses SymPy to algebraically expand and simplify the sum of all derivatives.
+        If the model is correctly implemented, all terms should cancel exactly,
+        yielding a symbolic result of 0 (not just numerically close to zero).
+        
+        This is a PROOF, not a numerical test. It verifies the mathematical
+        structure of the equations, independent of parameter values.
         """
         syms = create_symbolic_variables()
         
@@ -207,10 +233,35 @@ class TestSymbolicPopulationConservation:
     
     def test_closed_population_conservation_full_model(self):
         """
-        Verify: sum of all 18 compartment derivatives = 0 (no demographics)
+        Symbolically verify population conservation for the complete model.
         
-        Includes both unvaccinated and vaccinated pathways.
-        This is the complete conservation test for the full model.
+        Mathematical Proof:
+        -------------------
+        This extends the unvaccinated conservation test to include all 18 compartments:
+        - 9 unvaccinated: S, E, I, X_queued, X_admitted, H_ward, H_icu, R, D
+        - 9 vaccinated: S_vax, E_vax, I_vax, X_queued_vax, X_admitted_vax, 
+                        H_ward_vax, H_icu_vax, R_vax, D_vax
+        
+        For a closed system (no demographics), the sum of all 18 compartment
+        derivatives must equal zero.
+        
+        Key Complexity:
+        ---------------
+        - Vaccination flow: S → S_vax (rate v*S)
+        - Waning immunity: R_vax → S (if wane_to_S=True) or R_vax → S_vax (if False)
+        - Cross-pathway interactions: vaccinated individuals contribute to force
+          of infection affecting unvaccinated (and vice versa)
+        
+        Why This Test Is Critical:
+        --------------------------
+        The full model has many more flows than the unvaccinated-only version.
+        Each flow must be properly balanced. This test ensures:
+        - Vaccination flows are balanced (S decreases by exactly what S_vax gains)
+        - Waning flows are balanced
+        - All disease progression flows are balanced in both pathways
+        - No individuals are lost or created in the transitions
+        
+        This is the most comprehensive structural validation of the model.
         """
         syms = create_symbolic_variables()
         
@@ -242,7 +293,7 @@ class TestSymbolicPopulationConservation:
         mu_I_v, mu_X_v, mu_X_u_v = syms['mu_I_vax'], syms['mu_X_vax'], syms['mu_X_untreated_vax']
         mu_ward_eff_v, mu_icu_v = syms['mu_ward_eff_vax'], syms['mu_icu_vax']
         
-        # Waning destination: assume wane_to_S = True (R_vax -> S)
+        # Waning destination: assume wane_to_S = True (R_vax → S)
         wane_to_S = True
         
         # Unvaccinated derivatives
@@ -555,13 +606,48 @@ class TestSymbolicForceOfInfection:
     
     def test_foi_matrix_orientation_symbolic(self):
         """
-        Verify contact matrix transpose is correctly applied.
+        Symbolically verify that contact matrix directionality is correctly implemented.
         
-        For contact matrix C where C[a,b] = contacts from a to b:
-        FOI on group a should use C.T @ I_eff
-        lambda_a = beta * sum_b(C[b,a] * I_eff_b) / N_a
+        Mathematical Background:
+        ------------------------
+        Contact matrices are often defined with the convention:
+        C[a,b] = average number of contacts that individuals in age group 'a' 
+                 make with individuals in age group 'b'
         
-        Using 2x2 symbolic matrix to verify.
+        This means C[a,b] represents contacts FROM group a TO group b.
+        
+        Force of Infection Calculation:
+        --------------------------------
+        The force of infection on group 'a' depends on contacts RECEIVED by group 'a'
+        from all other groups. Therefore, we need:
+        
+        λ_a = β * Σ_b [C[b,a] * I_eff_b / N_a]
+        
+        Notice C[b,a] (not C[a,b]): we sum over contacts FROM b TO a.
+        
+        In matrix notation: FOI_vector = β * (C.T @ I_eff) / N
+        
+        Why This Matters:
+        -----------------
+        Using C instead of C.T would reverse the directionality of transmission,
+        leading to completely wrong epidemic dynamics. For example:
+        - If children (group 0) have many contacts with adults (group 1): C[0,1] is high
+        - But adults might have fewer contacts with children: C[1,0] is low
+        - Using the wrong orientation would incorrectly model transmission patterns
+        
+        This Test:
+        ----------
+        Creates a 2x2 asymmetric symbolic contact matrix and verifies that:
+        - λ_0 = β * (C[0,0] * I_eff_0 + C[1,0] * I_eff_1) / N_0
+        - λ_1 = β * (C[0,1] * I_eff_0 + C[1,1] * I_eff_1) / N_1
+        
+        The asymmetry ensures we can detect if the transpose is missing.
+        
+        Historical Note:
+        ----------------
+        This test was added after discovering a directionality bug in an earlier
+        version of the model. It serves as a regression test to prevent this
+        critical error from reoccurring.
         """
         # Create 2x2 asymmetric contact matrix
         C00, C01, C10, C11 = symbols('C_00 C_01 C_10 C_11', positive=True)

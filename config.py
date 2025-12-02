@@ -27,13 +27,26 @@ Usage:
 """
 
 import numpy as np
+from typing import List, Dict, Optional
+from model_types import (
+    SimParams,
+    CapacityParams,
+    AgeParams,
+    ContactMatrix,
+    VaccineEfficacyParams,
+    VaccineWaningParams,
+    SeasonalParams,
+    Intervention,
+    DemographicParams,
+    DifferentialMortalityParams
+)
 
 
 # ============================================================================
 # SECTION 1: CORE SIMULATION PARAMETERS
 # ============================================================================
 
-DEFAULT_SIM_PARAMS = {
+DEFAULT_SIM_PARAMS: SimParams = {
     'Tmax': 200,          # simulation duration in days
     'time_step': 0.1,     # Euler integration time step
     'hill_coef': 4,       # Hill coefficient for admission gating (legacy)
@@ -43,7 +56,7 @@ DEFAULT_SIM_PARAMS = {
     'theta_vax': 0.5,     # relative infectiousness of vaccinated infected individuals (breakthrough)
 }
 
-DEFAULT_CAPACITY_PARAMS = {
+DEFAULT_CAPACITY_PARAMS: CapacityParams = {
     'ward_capacity': 80,
     'icu_capacity': 20,
     'total_capacity': 100,
@@ -65,7 +78,7 @@ AGE_POPS_DEFAULT = [3000, 5000, 2000]  # Original default (10,000 total)
 # This provides more realistic modeling of real-world vaccines where
 # protection against death often exceeds protection against infection.
 
-VACCINE_EFFICACY_PARAMS = {
+VACCINE_EFFICACY_PARAMS: VaccineEfficacyParams = {
     # Three-factor efficacy parameters
     'VE_infection': 0.6,    # 60% reduction in susceptibility to infection
     'VE_severe': 0.8,       # 80% reduction in progression to severe disease
@@ -82,7 +95,7 @@ VACCINATION_RATE_PARAMS = {
 }
 
 # Vaccine immunity waning parameters
-VACCINE_WANING_PARAMS = {
+VACCINE_WANING_PARAMS: VaccineWaningParams = {
     'omega_vax': 0.0,                 # vaccine immunity waning rate (1/days), 0 = no waning
     'omega_vax_by_age': None,         # age-specific waning [young, middle, elderly] or None for uniform
     'waning_destination': 'S_vax',        # 'S' = return to vaccination susceptibility, 'S_vax' = partial protection
@@ -219,7 +232,7 @@ NUM_AGE_GROUPS = 3
 # 4.1 Empirical Parameters (COVID-calibrated)
 # =======================================================================
 
-YOUNG_PARAMS_EMPIRICAL = {
+YOUNG_PARAMS_EMPIRICAL: AgeParams = {
     # Latent period (E → I)
     'alpha': 0.2,             # ~5 day latent period
     
@@ -244,7 +257,7 @@ YOUNG_PARAMS_EMPIRICAL = {
     'mu_icu': 0.005,          # 0.5% ICU mortality
 }
 
-MIDDLE_PARAMS_EMPIRICAL = {
+MIDDLE_PARAMS_EMPIRICAL: AgeParams = {
     'alpha': 0.2,
     'sigma': 0.08,            # 8% progress to severe per day
     'eta': 0.15,              # ward admission attempt rate (per day)
@@ -262,7 +275,7 @@ MIDDLE_PARAMS_EMPIRICAL = {
     'mu_icu': 0.02
 }
 
-ELDERLY_PARAMS_EMPIRICAL = {
+ELDERLY_PARAMS_EMPIRICAL: AgeParams = {
     'alpha': 0.18,            # slightly longer latent period
     'sigma': 0.15,            # 15% progress to severe per day
     'eta': 0.35,              # ward admission attempt rate (per day)
@@ -280,14 +293,14 @@ ELDERLY_PARAMS_EMPIRICAL = {
     'mu_icu': 0.04
 }
 
-AGE_PARAMS_EMPIRICAL = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY_PARAMS_EMPIRICAL]
+AGE_PARAMS_EMPIRICAL: List[AgeParams] = [YOUNG_PARAMS_EMPIRICAL, MIDDLE_PARAMS_EMPIRICAL, ELDERLY_PARAMS_EMPIRICAL]
 
 
 # =======================================================================
 # 4.2 Teaching Parameters (exaggerated effects)
 # =======================================================================
 
-YOUNG_PARAMS_TEACHING = {
+YOUNG_PARAMS_TEACHING: AgeParams = {
     'alpha': 0.2,
     'sigma': 0.1,
     'eta': 0.2,
@@ -305,7 +318,7 @@ YOUNG_PARAMS_TEACHING = {
     'mu_icu': 0.008
 }
 
-MIDDLE_PARAMS_TEACHING = {
+MIDDLE_PARAMS_TEACHING: AgeParams = {
     'alpha': 0.2,
     'sigma': 0.2,
     'eta': 0.3,
@@ -323,7 +336,7 @@ MIDDLE_PARAMS_TEACHING = {
     'mu_icu': 0.04
 }
 
-ELDERLY_PARAMS_TEACHING = {
+ELDERLY_PARAMS_TEACHING: AgeParams = {
     'alpha': 0.18,
     'sigma': 0.3,
     'eta': 0.5,
@@ -341,7 +354,7 @@ ELDERLY_PARAMS_TEACHING = {
     'mu_icu': 0.12
 }
 
-AGE_PARAMS_TEACHING = [YOUNG_PARAMS_TEACHING, MIDDLE_PARAMS_TEACHING, ELDERLY_PARAMS_TEACHING]
+AGE_PARAMS_TEACHING: List[AgeParams] = [YOUNG_PARAMS_TEACHING, MIDDLE_PARAMS_TEACHING, ELDERLY_PARAMS_TEACHING]
 
 
 # =======================================================================
@@ -364,7 +377,7 @@ ELDERLY_PARAMS_ACTIVE = ELDERLY_PARAMS_EMPIRICAL if USE_EMPIRICAL_PARAMS else EL
 # Mortality multipliers for patients denied care due to capacity constraints.
 # Applied when Hill gating restricts admissions.
 
-DIFFERENTIAL_MORTALITY_PARAMS = {
+DIFFERENTIAL_MORTALITY_PARAMS: DifferentialMortalityParams = {
     # Base multipliers (applied uniformly if age-specific not specified)
     'mu_X_untreated_multiplier': 2.0,
     'mu_ward_denied_icu_multiplier': 1.5,
@@ -387,40 +400,40 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 # Contact rates C[a,b] = contacts per day from age group a to b
 # Rows = infector age group, Cols = infectee age group
 
-CONTACT_MATRIX_DEFAULT = np.array([
+CONTACT_MATRIX_DEFAULT: ContactMatrix = np.array([
     [10.0, 3.0, 1.0],    # young: high within-group, low with elderly
     [3.0, 8.0, 2.0],     # middle: moderate all-around
     [1.0, 2.0, 4.0]      # elderly: lower overall contact rates
 ])
 
-CONTACT_MATRIX_HOMOGENEOUS = np.array([
+CONTACT_MATRIX_HOMOGENEOUS: ContactMatrix = np.array([
     [8.0, 8.0, 8.0],
     [8.0, 8.0, 8.0],
     [8.0, 8.0, 8.0]
 ])
 
-CONTACT_MATRIX_ASSORTATIVE = np.array([
+CONTACT_MATRIX_ASSORTATIVE: ContactMatrix = np.array([
     [15.0, 1.0, 0.5],    # strong within-group mixing
     [1.0, 12.0, 1.0],
     [0.5, 1.0, 6.0]
 ])
 
 # School closure scenario: reduced young-to-all contacts
-CONTACT_MATRIX_SCHOOL_CLOSURE = np.array([
+CONTACT_MATRIX_SCHOOL_CLOSURE: ContactMatrix = np.array([
     [4.0, 1.5, 0.5],     # young contacts reduced ~60%
     [1.5, 8.0, 2.0],     # middle unchanged
     [0.5, 2.0, 4.0]      # elderly unchanged
 ])
 
 # Work-from-home scenario: reduced middle adult contacts
-CONTACT_MATRIX_WORK_FROM_HOME = np.array([
+CONTACT_MATRIX_WORK_FROM_HOME: ContactMatrix = np.array([
     [10.0, 1.5, 1.0],
     [1.5, 4.0, 1.0],     # middle-middle reduced ~50%
     [1.0, 1.0, 4.0]
 ])
 
 # Elderly shielding: reduced elderly contacts
-CONTACT_MATRIX_ELDERLY_SHIELDING = np.array([
+CONTACT_MATRIX_ELDERLY_SHIELDING: ContactMatrix = np.array([
     [10.0, 3.0, 0.3],
     [3.0, 8.0, 0.6],
     [0.3, 0.6, 2.0]      # elderly contacts reduced ~50%
@@ -458,8 +471,8 @@ HEALTHCARE_SYSTEM_RURAL = {
 HEALTHCARE_SYSTEM_SUBURBAN = {
     'name': 'Suburban Hospital',
     'description': 'Mid-sized suburban hospital system',
-    'ward_capacity': 160,
-    'icu_capacity': 40,
+    'ward_capacity': 800,
+    'icu_capacity': 200,
     'hill_coef_ward': 4,
     'hill_coef_icu': 4,
     'age_pops': [60000, 100000, 40000],  # 200,000 total
@@ -619,28 +632,28 @@ INITIAL_CONDITIONS_PRESETS = {
 # period: days per cycle (typically 365)
 # peak_day: day of year when transmission peaks (0 = Jan 1)
 
-SEASONAL_PARAMS_NONE = {
+SEASONAL_PARAMS_NONE: SeasonalParams = {
     'amplitude': 0.0,
     'period': 365,
     'peak_day': 0,
     'description': 'No seasonal variation',
 }
 
-SEASONAL_PARAMS_MILD = {
+SEASONAL_PARAMS_MILD: SeasonalParams = {
     'amplitude': 0.15,
     'period': 365,
     'peak_day': 0,
     'description': 'Mild winter peak (subtropical climate)',
 }
 
-SEASONAL_PARAMS_MODERATE = {
+SEASONAL_PARAMS_MODERATE: SeasonalParams = {
     'amplitude': 0.25,
     'period': 365,
     'peak_day': 0,
     'description': 'Moderate seasonality (temperate climate)',
 }
 
-SEASONAL_PARAMS_STRONG = {
+SEASONAL_PARAMS_STRONG: SeasonalParams = {
     'amplitude': 0.40,
     'period': 365,
     'peak_day': 0,
@@ -697,9 +710,9 @@ WANING_AGE_DIFFERENTIAL = {
 # For long-term simulations, open population dynamics with births and
 # non-disease (background) mortality can be enabled.
 
-DEMOGRAPHIC_PARAMS_NONE = None  # Closed population (default)
+DEMOGRAPHIC_PARAMS_NONE: Optional[DemographicParams] = None  # Closed population (default)
 
-DEMOGRAPHIC_PARAMS_DEFAULT = {
+DEMOGRAPHIC_PARAMS_DEFAULT: DemographicParams = {
     # Birth rate: daily births per 1000 population (crude birth rate)
     # Global average ~18/1000/year = 0.049/day per 1000 = 0.000049 per capita/day
     'birth_rate': 0.000049,
@@ -721,7 +734,7 @@ DEMOGRAPHIC_PARAMS_DEFAULT = {
 }
 
 # High-income country demographics (lower birth/death rates)
-DEMOGRAPHIC_PARAMS_HIGH_INCOME = {
+DEMOGRAPHIC_PARAMS_HIGH_INCOME: DemographicParams = {
     'birth_rate': 0.000030,  # ~11/1000/year
     'birth_age_distribution': [1.0, 0.0, 0.0],
     'mu_background': [0.0000008, 0.0000055, 0.00012],  # Lower young/middle, similar elderly
@@ -730,7 +743,7 @@ DEMOGRAPHIC_PARAMS_HIGH_INCOME = {
 }
 
 # Low-income country demographics (higher birth/death rates)
-DEMOGRAPHIC_PARAMS_LOW_INCOME = {
+DEMOGRAPHIC_PARAMS_LOW_INCOME: DemographicParams = {
     'birth_rate': 0.000082,  # ~30/1000/year
     'birth_age_distribution': [1.0, 0.0, 0.0],
     'mu_background': [0.0000055, 0.00011, 0.00022],  # Higher mortality all ages
@@ -739,7 +752,7 @@ DEMOGRAPHIC_PARAMS_LOW_INCOME = {
 }
 
 # Endemic equilibrium demographics (balanced births and deaths)
-DEMOGRAPHIC_PARAMS_EQUILIBRIUM = {
+DEMOGRAPHIC_PARAMS_EQUILIBRIUM: DemographicParams = {
     'birth_rate': 0.000049,  # Matched to approximate death rate
     'birth_age_distribution': [1.0, 0.0, 0.0],
     'mu_background': [0.0000014, 0.0000082, 0.00011],
@@ -748,7 +761,7 @@ DEMOGRAPHIC_PARAMS_EQUILIBRIUM = {
 }
 
 # Neonatal vaccination scenario
-DEMOGRAPHIC_PARAMS_NEONATAL_VAX = {
+DEMOGRAPHIC_PARAMS_NEONATAL_VAX: DemographicParams = {
     'birth_rate': 0.000049,
     'birth_age_distribution': [1.0, 0.0, 0.0],
     'mu_background': [0.0000014, 0.0000082, 0.00011],
@@ -772,26 +785,26 @@ DEMOGRAPHIC_PRESETS = {
 # =======================================================================
 # Each intervention: {'start_day', 'end_day', 'transmission_reduction'}
 
-INTERVENTION_NONE = []
+INTERVENTION_NONE: List[Intervention] = []
 
-INTERVENTION_EARLY_STRONG = [
+INTERVENTION_EARLY_STRONG: List[Intervention] = [
     {'start_day': 14, 'end_day': 60, 'transmission_reduction': 0.6},
 ]
 
-INTERVENTION_EARLY_MODERATE = [
+INTERVENTION_EARLY_MODERATE: List[Intervention] = [
     {'start_day': 21, 'end_day': 75, 'transmission_reduction': 0.4},
 ]
 
-INTERVENTION_DELAYED_STRONG = [
+INTERVENTION_DELAYED_STRONG: List[Intervention] = [
     {'start_day': 45, 'end_day': 105, 'transmission_reduction': 0.6},
 ]
 
-INTERVENTION_DELAYED_MODERATE = [
+INTERVENTION_DELAYED_MODERATE: List[Intervention] = [
     {'start_day': 60, 'end_day': 120, 'transmission_reduction': 0.4},
 ]
 
 # Tiered restrictions (escalating)
-INTERVENTION_TIERED_ESCALATING = [
+INTERVENTION_TIERED_ESCALATING: List[Intervention] = [
     {'start_day': 21, 'end_day': 35, 'transmission_reduction': 0.2},
     {'start_day': 35, 'end_day': 56, 'transmission_reduction': 0.4},
     {'start_day': 56, 'end_day': 84, 'transmission_reduction': 0.6},

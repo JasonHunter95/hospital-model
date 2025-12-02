@@ -1,6 +1,8 @@
 import warnings
 import numpy as np
 from time_varying_helpers import seasonal_forcing, policy_multiplier
+from model_types import ODEParams
+from typing import Dict, Tuple
 
 
 # ============================================================================
@@ -407,7 +409,7 @@ def _hill_gate_vectorized(occupancy, capacity, hill_coef):
 # DERIVATIVE FUNCTION FOR ODE SOLVERS
 # ============================================================================
 
-def _compute_force_of_infection(state, params, beta_t, theta_X, theta_H, theta_vax):
+def _compute_force_of_infection(state: Dict[str, np.ndarray], params: ODEParams, beta_t: float, theta_X: float, theta_H: float, theta_vax: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """
     Calculate the force of infection for both unvaccinated and vaccinated populations.
     
@@ -493,8 +495,8 @@ def _compute_force_of_infection(state, params, beta_t, theta_X, theta_H, theta_v
     return lambda_foi, lambda_foi_vax, live_pop, total_live_pop
 
 
-def _compute_unvax_derivatives(state, params, lambda_foi, g_ward, g_icu, 
-                                births_to_S, waning_flow_vax, bg_deaths_dict):
+def _compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi: np.ndarray, g_ward: float, g_icu: float, 
+                                births_to_S: np.ndarray, waning_flow_vax: np.ndarray, bg_deaths_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     """
     Calculate derivatives for unvaccinated compartments.
     
@@ -637,8 +639,8 @@ def _compute_unvax_derivatives(state, params, lambda_foi, g_ward, g_icu,
     }
 
 
-def _compute_vax_derivatives(state, params, lambda_foi_vax, g_ward, g_icu,
-                              births_to_S_vax, new_vaccinations, waning_flow_vax, bg_deaths_dict):
+def _compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi_vax: np.ndarray, g_ward: float, g_icu: float,
+                              births_to_S_vax: np.ndarray, new_vaccinations: np.ndarray, waning_flow_vax: np.ndarray, bg_deaths_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     """
     Calculate derivatives for vaccinated compartments.
     
@@ -790,7 +792,7 @@ def _compute_vax_derivatives(state, params, lambda_foi_vax, g_ward, g_icu,
     }
 
 
-def _master_deriv(y, t, params):
+def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     """
     Compute derivatives for the master SEIXHRD model with vaccination and demographics.
     

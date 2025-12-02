@@ -45,52 +45,62 @@ from simulation_helpers import (
     validate_demographic_params
 )
 from time_varying_helpers import seasonal_forcing, policy_multiplier
+from model_types import ODEParams
+from typing import List, Dict, Optional, Any
 
 
 def simulate_master_hospital_model(
+    # Core Data (Required)
     beta_base,
     age_params,
     contact_matrix,
-    # Capacity parameters
-    ward_capacity=None,
-    icu_capacity=None,
-    hill_coef_ward=None,
-    hill_coef_icu=None,
-    # Vaccination parameters (legacy leaky model - for backward compatibility)
-    coverage=0.0,
+    age_pops,
+    
+    # Grouped Configurations (Optional)
+    sim_config=None,
+    capacity_config=None,
+    vaccine_config=None,
+    vaccine_waning_config=None,
+    demographic_config=None,
+    seasonal_config=None,
+    waning_config=None,
+    intervention_config=None,
+    
+    # Initial Conditions
+    initial_conditions=None,
+    
+    # Simulation Control
+    solver='odeint',
+    solver_method='LSODA',
+    rtol=1e-6,
+    atol=1e-9,
+    
+    # Tracking
+    track_differential_mortality=True,
+    track_compartment_flows=False,
+    
+    # Legacy parameters for backward compatibility (deprecated)
+    coverage=None,
     VE=None,
-    # Three-Factor Vaccination Model parameters
     VE_infection=None,
     VE_severe=None,
     VE_death=None,
     vaccination_rate=None,
     theta_vax=None,
     vaccine_waning_params=None,
-    # Population
-    age_pops=None,
-    # Infectiousness modifiers
+    ward_capacity=None,
+    icu_capacity=None,
+    hill_coef_ward=None,
+    hill_coef_icu=None,
     theta_X=None,
     theta_H=None,
-    # Time-varying parameters
     seasonal_params=None,
     waning_params=None,
     interventions=None,
-    # Demographic parameters (births and background deaths)
     demographic_params=None,
-    # Simulation control
     Tmax=None,
     time_step=None,
-    # Tracking options
-    track_differential_mortality=True,
-    track_compartment_flows=False,
-    # Initial conditions
-    initial_conditions=None,
-    # Solver options (new)
-    solver='odeint',
-    solver_method='LSODA',
-    rtol=1e-6,
-    atol=1e-9,
-    clip_warning_threshold=1e-6
+    clip_warning_threshold=None,
 ):
     """
     Simulate the Master SEIXHRD hospital model with Three-Factor Vaccination.
@@ -115,92 +125,104 @@ def simulate_master_hospital_model(
     contact_matrix : ndarray
         Contact rates C[a,b] between age groups (infector a, infectee b).
         Shape: (n_ages, n_ages).
-    ward_capacity : float, optional
-        Total general ward capacity. Default from config.
-    icu_capacity : float, optional
-        Total ICU capacity. Default from config.
-    hill_coef_ward : float, optional
-        Hill coefficient for ward admission gating. Default from config.
-    hill_coef_icu : float, optional
-        Hill coefficient for ICU admission gating. Default from config.
-    coverage : float or list, optional
-        Initial vaccine coverage (fraction already vaccinated at t=0).
-        Float for uniform, list for age-specific. Default 0.0.
-        When using Three-Factor Model, this determines initial S_vax population.
-    VE : float, optional
-        Legacy vaccine efficacy (0-1) for backward compatibility.
-        If VE_infection/VE_severe/VE_death are not provided, VE is used for all three.
-    VE_infection : float, optional
-        Three-Factor Model: Efficacy against infection (0-1).
-        Reduces force of infection for vaccinated susceptibles.
-        Default from config.VACCINE_EFFICACY_PARAMS.
-    VE_severe : float, optional
-        Three-Factor Model: Efficacy against severe disease (0-1).
-        Reduces sigma (I→X progression) for vaccinated individuals.
-        Default from config.VACCINE_EFFICACY_PARAMS.
-    VE_death : float, optional
-        Three-Factor Model: Efficacy against death (0-1).
-        Reduces mortality rates (mu_*) for vaccinated individuals.
-        Default from config.VACCINE_EFFICACY_PARAMS.
-    vaccination_rate : float or list, optional
-        Daily vaccination rate (fraction of S → S_vax per day).
-        Float for uniform rate, list for age-specific [young, middle, elderly].
-        Default 0.0 (no ongoing vaccination, only initial coverage).
-    theta_vax : float, optional
-        Relative infectiousness of vaccinated infectious individuals.
-        Default from config.
-    vaccine_waning_params : dict, optional
+    age_pops : list
+        Population size for each age group. Required.
+    
+    sim_config : dict, optional
+        Simulation configuration parameters:
+        - 'Tmax': simulation duration in days
+        - 'time_step': integration time step
+        - 'theta_X': relative infectiousness of X compartment
+        - 'theta_H': relative infectiousness of H compartment
+        - 'VE': legacy vaccine efficacy (for backward compatibility)
+        - 'theta_vax': relative infectiousness of vaccinated infected individuals
+        Default: uses config.DEFAULT_SIM_PARAMS
+    
+    capacity_config : dict, optional
+        Healthcare capacity configuration:
+        - 'ward_capacity': total general ward capacity
+        - 'icu_capacity': total ICU capacity
+        - 'hill_coef_ward': Hill coefficient for ward admission gating
+        - 'hill_coef_icu': Hill coefficient for ICU admission gating
+        Default: uses config.DEFAULT_CAPACITY_PARAMS
+    
+    vaccine_config : dict, optional
+        Vaccine efficacy and coverage configuration:
+        - 'coverage': initial vaccine coverage (float or list for age-specific)
+        - 'VE_infection': efficacy against infection (0-1)
+        - 'VE_severe': efficacy against severe disease (0-1)
+        - 'VE_death': efficacy against death (0-1)
+        - 'theta_vax': relative infectiousness of vaccinated infected
+        - 'vaccination_rate': daily vaccination rate (float or list)
+        Default: uses config.VACCINE_EFFICACY_PARAMS
+    
+    vaccine_waning_config : dict, optional
         Vaccine immunity waning parameters:
         - 'omega_vax': vaccine waning rate (1/days)
         - 'omega_vax_by_age': age-specific waning rates [young, middle, elderly]
         - 'waning_destination': 'S' (fully susceptible) or 'S_vax' (partial protection)
-        - 'wane_to_S': boolean alias for waning_destination (True='S', False='S_vax')
-    age_pops : list
-        Population size for each age group. Required.
-    theta_X : float, optional
-        Relative infectiousness of X compartment. Default from config.
-    theta_H : float, optional
-        Relative infectiousness of hospitalized compartments. Default from config.
-    seasonal_params : dict, optional
+        Default: no waning
+    
+    demographic_config : dict, optional
+        Demographic (vital dynamics) parameters:
+        - 'birth_rate': per-capita birth rate (births per person per day)
+        - 'mu_background': age-specific background mortality rate
+        - 'birth_age_distribution': fraction of births entering each age group
+        - 'neonatal_vaccination_rate': fraction of newborns vaccinated at birth
+        Default: None (closed population)
+    
+    seasonal_config : dict, optional
         Seasonal forcing parameters:
-        - 'amplitude': seasonal amplitude (0-1), default 0
-        - 'period': period in days, default 365
-        - 'peak_day': day of peak transmission, default 0
-    waning_params : dict, optional
+        - 'amplitude': seasonal amplitude (0-1)
+        - 'period': period in days
+        - 'peak_day': day of peak transmission
+        Default: no seasonality
+    
+    waning_config : dict, optional
         Natural immunity waning parameters (R → S):
         - 'omega': uniform waning rate (1/days), OR
         - 'omega_young', 'omega_middle', 'omega_elderly': age-specific rates
-    interventions : list of dict, optional
+        Default: no waning
+    
+    intervention_config : list of dict, optional
         Policy interventions, each with:
         - 'start_day': intervention start
         - 'end_day': intervention end  
         - 'transmission_reduction': fraction reduction (0-1)
-    demographic_params : dict, optional
-        Demographic (vital dynamics) parameters for open population modeling:
-        - 'birth_rate': per-capita birth rate (births per person per day).
-          Typical value: ~0.00003 (≈12 births per 1000 per year).
-        - 'mu_background': age-specific background mortality rate (deaths per 
-          person per day). Float for uniform, list for age-specific.
-          Typical values: [0.00001, 0.00005, 0.0003] for young, middle, elderly.
-        - 'birth_age_distribution': fraction of births entering each age group.
-          Default [1, 0, 0, ...] (all births enter youngest age group).
-        - 'neonatal_vaccination_rate': fraction of newborns vaccinated at birth
-          (0-1). Routes that fraction of births to S_vax instead of S.
-        
-        Note: For long simulations (>1 year), if births ≠ deaths, population
-        will drift. Set birth_rate ≈ sum(mu_background * age_pops) / total_pop
-        for approximate population stability.
-    Tmax : float, optional
-        Simulation duration in days. Default from config.
-    time_step : float, optional
-        Integration time step. Default from config.
-    track_differential_mortality : bool, optional
-        Track deaths by care status. Default True.
-    track_compartment_flows : bool, optional
-        Track daily flows between compartments. Default False.
+        Default: no interventions
+    
     initial_conditions : dict, optional
         Override default initial conditions. Supports both unvaccinated
         (*_by_age) and vaccinated (*_vax_by_age) compartment keys.
+    
+    solver : str, optional
+        ODE solver to use: 'odeint' or 'solve_ivp'. Default: 'odeint'
+    
+    solver_method : str, optional
+        Method for solve_ivp: 'LSODA', 'RK45', 'BDF', 'Radau', etc.
+        Default: 'LSODA'
+    
+    rtol : float, optional
+        Relative tolerance for ODE solver. Default: 1e-6
+    
+    atol : float, optional
+        Absolute tolerance for ODE solver. Default: 1e-9
+    
+    track_differential_mortality : bool, optional
+        Track deaths by care status. Default: True
+    
+    track_compartment_flows : bool, optional
+        Track daily flows between compartments. Default: False
+    
+    Legacy Parameters (Deprecated)
+    ------------------------------
+    The following parameters are maintained for backward compatibility but are
+    deprecated in favor of the grouped configuration dictionaries:
+    
+    coverage, VE, VE_infection, VE_severe, VE_death, vaccination_rate, theta_vax,
+    vaccine_waning_params, ward_capacity, icu_capacity, hill_coef_ward, hill_coef_icu,
+    theta_X, theta_H, seasonal_params, waning_params, interventions, demographic_params,
+    Tmax, time_step, clip_warning_threshold
     
     Returns
     -------
@@ -238,7 +260,7 @@ def simulate_master_hospital_model(
         - 'D_treated_total', 'D_untreated_total': aggregated
         - 'D_vax_total': total vaccinated deaths over time
         
-        Demographic metrics (if demographic_params provided):
+        Demographic metrics (if demographic_config provided):
         - 'cum_births': cumulative births by age group
         - 'cum_births_total': total cumulative births
         - 'cum_background_deaths': cumulative background deaths by age group
@@ -296,53 +318,120 @@ def simulate_master_hospital_model(
     
     Examples
     --------
-    >>> from config import (AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT,
-    ...                     get_vaccine_profile)
+    >>> from config import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, AGE_POPS_DEFAULT
+    >>> from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     >>> 
-    >>> # Three-Factor Vaccination simulation
-    >>> vaccine = get_vaccine_profile('mrna_original')
+    >>> # New grouped parameter style (recommended)
     >>> results = simulate_master_hospital_model(
     ...     beta_base=0.3,
     ...     age_params=AGE_PARAMS_DEFAULT,
     ...     contact_matrix=CONTACT_MATRIX_DEFAULT,
-    ...     ward_capacity=80,
-    ...     icu_capacity=20,
-    ...     coverage=[0.2, 0.3, 0.7],  # initial vaccinated population
-    ...     VE_infection=vaccine['VE_infection'],
-    ...     VE_severe=vaccine['VE_severe'],
-    ...     VE_death=vaccine['VE_death'],
-    ...     theta_vax=vaccine['theta_vax'],
-    ...     vaccination_rate=0.005,  # ongoing vaccination
-    ...     vaccine_waning_params={'omega_vax': vaccine['omega_vax']},
-    ...     age_pops=[3000, 5000, 2000],
-    ...     Tmax=365
+    ...     age_pops=AGE_POPS_DEFAULT,
+    ...     sim_config={'Tmax': 365, 'time_step': 0.1},
+    ...     capacity_config={'ward_capacity': 80, 'icu_capacity': 20},
+    ...     vaccine_config={
+    ...         'coverage': [0.2, 0.3, 0.7],
+    ...         'VE_infection': 0.8,
+    ...         'VE_severe': 0.9,
+    ...         'VE_death': 0.95,
+    ...         'vaccination_rate': 0.005
+    ...     }
     ... )
     >>> 
     >>> print(f"Peak ICU: {max(results['H_icu_total']):.0f}")
     >>> print(f"Total deaths: {results['D_total'][-1]:.0f}")
-    >>> print(f"Vaccinated deaths: {results['D_vax_total'][-1]:.0f}")
-    >>> print(f"Breakthrough infections: {results['breakthrough_infections'][-1]:.0f}")
     """
     # ========================================
     # Parameter Setup with Defaults
     # ========================================
-    if age_pops is None:
-        raise ValueError("age_pops must be provided.")
     
-    n_ages = len(age_pops)
+    # Unpack grouped configurations with backward compatibility
+    # Priority: grouped config > legacy parameter > default
     
-    # Load defaults from config
-    theta_X = config.DEFAULT_SIM_PARAMS['theta_X'] if theta_X is None else theta_X
-    theta_H = config.DEFAULT_SIM_PARAMS['theta_H'] if theta_H is None else theta_H
-    Tmax = config.DEFAULT_SIM_PARAMS['Tmax'] if Tmax is None else Tmax
-    time_step = config.DEFAULT_SIM_PARAMS['time_step'] if time_step is None else time_step
-    VE = config.DEFAULT_SIM_PARAMS['VE'] if VE is None else VE
+    # Simulation parameters
+    if sim_config is None:
+        sim_config = {}
+    Tmax = sim_config.get('Tmax', Tmax if Tmax is not None else config.DEFAULT_SIM_PARAMS['Tmax'])
+    time_step = sim_config.get('time_step', time_step if time_step is not None else config.DEFAULT_SIM_PARAMS['time_step'])
+    theta_X = sim_config.get('theta_X', theta_X if theta_X is not None else config.DEFAULT_SIM_PARAMS['theta_X'])
+    theta_H = sim_config.get('theta_H', theta_H if theta_H is not None else config.DEFAULT_SIM_PARAMS['theta_H'])
+    VE = sim_config.get('VE', VE if VE is not None else config.DEFAULT_SIM_PARAMS['VE'])
+    theta_vax_from_sim = sim_config.get('theta_vax', None)
     
     # Capacity parameters
-    K_ward = config.DEFAULT_CAPACITY_PARAMS['ward_capacity'] if ward_capacity is None else ward_capacity
-    K_icu = config.DEFAULT_CAPACITY_PARAMS['icu_capacity'] if icu_capacity is None else icu_capacity
-    n_ward = config.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'] if hill_coef_ward is None else hill_coef_ward
-    n_icu = config.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'] if hill_coef_icu is None else hill_coef_icu
+    if capacity_config is None:
+        capacity_config = {}
+    K_ward = capacity_config.get('ward_capacity', ward_capacity if ward_capacity is not None else config.DEFAULT_CAPACITY_PARAMS['ward_capacity'])
+    K_icu = capacity_config.get('icu_capacity', icu_capacity if icu_capacity is not None else config.DEFAULT_CAPACITY_PARAMS['icu_capacity'])
+    n_ward = capacity_config.get('hill_coef_ward', hill_coef_ward if hill_coef_ward is not None else config.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'])
+    n_icu = capacity_config.get('hill_coef_icu', hill_coef_icu if hill_coef_icu is not None else config.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'])
+    
+    # Vaccine efficacy parameters
+    if vaccine_config is None:
+        vaccine_config = {}
+    
+    # Handle coverage - can come from vaccine_config or legacy parameter
+    if 'coverage' in vaccine_config:
+        coverage = vaccine_config['coverage']
+    elif coverage is None:
+        coverage = 0.0
+    
+    # Three-factor vaccine efficacy
+    vaccine_params = config.VACCINE_EFFICACY_PARAMS
+    VE_infection = vaccine_config.get('VE_infection', VE_infection if VE_infection is not None else vaccine_params['VE_infection'])
+    VE_severe = vaccine_config.get('VE_severe', VE_severe if VE_severe is not None else vaccine_params['VE_severe'])
+    VE_death = vaccine_config.get('VE_death', VE_death if VE_death is not None else vaccine_params['VE_death'])
+    
+    # Theta_vax can come from vaccine_config, sim_config, or legacy parameter
+    if 'theta_vax' in vaccine_config:
+        theta_vax = vaccine_config['theta_vax']
+    elif theta_vax_from_sim is not None:
+        theta_vax = theta_vax_from_sim
+    elif theta_vax is None:
+        theta_vax = config.DEFAULT_SIM_PARAMS.get('theta_vax', 0.5)
+    
+    # Vaccination rate
+    if 'vaccination_rate' in vaccine_config:
+        vaccination_rate = vaccine_config['vaccination_rate']
+    elif vaccination_rate is None:
+        vaccination_rate = 0.0
+    
+    # Vaccine waning parameters
+    if vaccine_waning_config is not None:
+        # Use the grouped config
+        vaccine_waning_params = vaccine_waning_config
+    elif vaccine_waning_params is None:
+        # No waning by default
+        vaccine_waning_params = None
+    
+    # Seasonal parameters
+    if seasonal_config is not None:
+        seasonal_params = seasonal_config
+    elif seasonal_params is None:
+        seasonal_params = {'amplitude': 0.0, 'period': 365, 'peak_day': 0}
+    
+    # Waning immunity parameters
+    if waning_config is not None:
+        waning_params = waning_config
+    # else: keep waning_params as is (could be None or legacy value)
+    
+    # Intervention parameters
+    if intervention_config is not None:
+        interventions = intervention_config
+    elif interventions is None:
+        interventions = []
+    
+    # Demographic parameters
+    if demographic_config is not None:
+        demographic_params = demographic_config
+    # else: keep demographic_params as is (could be None or legacy value)
+    
+    # Clip warning threshold
+    if clip_warning_threshold is None:
+        clip_warning_threshold = 1e-6
+    
+    # Validate age_pops is provided
+    n_ages = len(age_pops)
     
     dt = time_step
     
@@ -358,7 +447,6 @@ def simulate_master_hospital_model(
     # ========================================
     # If VE_infection/VE_severe/VE_death are not provided, use legacy VE for backward compatibility
     # This maps the old leaky model to the three-factor model
-    vaccine_params = config.VACCINE_EFFICACY_PARAMS
     
     if VE_infection is None:
         VE_infection = vaccine_params['VE_infection'] if any(c > 0 for c in coverage) else 0.0
@@ -366,9 +454,6 @@ def simulate_master_hospital_model(
         VE_severe = vaccine_params['VE_severe'] if any(c > 0 for c in coverage) else 0.0
     if VE_death is None:
         VE_death = vaccine_params['VE_death'] if any(c > 0 for c in coverage) else 0.0
-    
-    # Vaccinated infectiousness modifier
-    theta_vax = config.DEFAULT_SIM_PARAMS.get('theta_vax', 0.5) if theta_vax is None else theta_vax
     
     # Vaccination rate - convert to list if scalar
     if vaccination_rate is None:
@@ -407,14 +492,6 @@ def simulate_master_hospital_model(
     # ========================================
     # Time-Varying Parameter Setup
     # ========================================
-    
-    # Seasonal parameters
-    if seasonal_params is None:
-        seasonal_params = {'amplitude': 0.0, 'period': 365, 'peak_day': 0}
-    
-    # Interventions
-    if interventions is None:
-        interventions = []
     
     # Waning immunity rates
     if waning_params is None:
@@ -550,7 +627,7 @@ def simulate_master_hospital_model(
     # ========================================
     # Build ODE Parameters Dictionary
     # ========================================
-    ode_params = {
+    ode_params: ODEParams = {
         'n_ages': n_ages,
         'beta_base': beta_base,
         'contact_matrix': np.asarray(contact_matrix),
