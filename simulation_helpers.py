@@ -407,6 +407,389 @@ def _hill_gate_vectorized(occupancy, capacity, hill_coef):
 # DERIVATIVE FUNCTION FOR ODE SOLVERS
 # ============================================================================
 
+def _compute_force_of_infection(state, params, beta_t, theta_X, theta_H, theta_vax):
+    """
+    Calculate the force of infection for both unvaccinated and vaccinated populations.
+    
+    Parameters
+    ----------
+    state : dict
+        Unpacked state compartments.
+    params : dict
+        Model parameters.
+    beta_t : float
+        Time-varying transmission rate.
+    theta_X : float
+        Infectiousness modifier for X compartments.
+    theta_H : float
+        Infectiousness modifier for H compartments.
+    theta_vax : float
+        Infectiousness modifier for vaccinated individuals.
+    
+    Returns
+    -------
+    tuple
+        (lambda_foi, lambda_foi_vax, live_pop, total_live_pop)
+        - lambda_foi: force of infection for unvaccinated
+        - lambda_foi_vax: force of infection for vaccinated (reduced by VE_infection)
+        - live_pop: live population per age group
+        - total_live_pop: total live population
+    """
+    n_ages = params['n_ages']
+    contact_matrix = params['contact_matrix']
+    VE_infection = params['VE_infection']
+    
+    # Extract compartments
+    S = state['S']
+    E = state['E']
+    I = state['I']
+    X_queued = state['X_queued']
+    X_admitted = state['X_admitted']
+    H_ward = state['H_ward']
+    H_icu = state['H_icu']
+    R = state['R']
+    S_vax = state['S_vax']
+    E_vax = state['E_vax']
+    I_vax = state['I_vax']
+    X_queued_vax = state['X_queued_vax']
+    X_admitted_vax = state['X_admitted_vax']
+    H_ward_vax = state['H_ward_vax']
+    H_icu_vax = state['H_icu_vax']
+    R_vax = state['R_vax']
+    
+    # Live population per age group (exclude dead)
+    # X_total = X_queued + X_admitted for live population count
+    X_total = X_queued + X_admitted
+    X_vax_total = X_queued_vax + X_admitted_vax
+    live_pop = (S + E + I + X_total + H_ward + H_icu + R +
+                S_vax + E_vax + I_vax + X_vax_total + H_ward_vax + H_icu_vax + R_vax)
+    total_live_pop = np.sum(live_pop)
+    
+    # Avoid division by zero
+    live_pop_safe = np.maximum(live_pop, 1e-10)
+    
+    # Infectious contributions (unvaccinated and vaccinated)
+    # Both X_queued and X_admitted contribute to infectiousness
+    H_contrib = H_ward + H_icu + H_ward_vax + H_icu_vax
+    infectious_unvax = I + theta_X * X_total
+    infectious_vax = theta_vax * (I_vax + theta_X * X_vax_total)
+    
+    # Total infectious proportion per age group
+    infectious_fraction = (infectious_unvax + infectious_vax + theta_H * H_contrib) / live_pop_safe
+    
+    # Calculate absolute effective infectious population (weighted by infectiousness)
+    I_eff_absolute = infectious_fraction * live_pop_safe
+    
+    # Vectorized FOI: lambda_j = beta_t * sum_i(C_ij * I_eff_i) / N_j
+    # Assumes contact_matrix[i,j] is contacts per person in i directed at j
+    # 1. Total infectious contacts from i to j = C_ij * I_eff_i
+    # 2. Sum over i to get total contacts hitting group j
+    # 3. Divide by N_j to get contacts per susceptible person
+    lambda_foi = beta_t * (contact_matrix.T @ I_eff_absolute) / live_pop_safe
+    
+    # Force of infection for vaccinated (reduced by VE_infection)
+    lambda_foi_vax = (1 - VE_infection) * lambda_foi
+    
+    return lambda_foi, lambda_foi_vax, live_pop, total_live_pop
+
+
+def _compute_unvax_derivatives(state, params, lambda_foi, g_ward, g_icu, 
+                                births_to_S, waning_flow_vax, bg_deaths_dict):
+    """
+    Calculate derivatives for unvaccinated compartments.
+    
+    Parameters
+    ----------
+    state : dict
+        Unpacked state compartments.
+    params : dict
+        Model parameters.
+    lambda_foi : np.ndarray
+        Force of infection for unvaccinated.
+    g_ward : float
+        Ward capacity gating factor.
+    g_icu : float
+        ICU capacity gating factor.
+    births_to_S : np.ndarray
+        Birth inflow to S compartment.
+    waning_flow_vax : np.ndarray
+        Waning flow from R_vax (if destination is 'S').
+    bg_deaths_dict : dict
+        Background death flows for all compartments.
+    
+    Returns
+    -------
+    dict
+        Dictionary containing unvaccinated compartment derivatives and death flows.
+    """
+    n_ages = params['n_ages']
+    age_params = params['age_params']
+    omega = params['omega']
+    vaccination_rate = params['vaccination_rate']
+    vax_waning_destination = params['vax_waning_destination']
+    dm_params = params['dm_params']
+    
+    # Extract compartments
+    S = state['S']
+    E = state['E']
+    I = state['I']
+    X_queued = state['X_queued']
+    X_admitted = state['X_admitted']
+    H_ward = state['H_ward']
+    H_icu = state['H_icu']
+    R = state['R']
+    
+    # Extract age-specific parameters as arrays
+    alpha = np.array([ap.get('alpha', 0.2) for ap in age_params])
+    sigma = np.array([ap['sigma'] for ap in age_params])
+    eta = np.array([ap['eta'] for ap in age_params])
+    eta_icu = np.array([ap.get('eta_icu', 0.1) for ap in age_params])
+    gamma_I = np.array([ap['gamma_I'] for ap in age_params])
+    mu_I = np.array([ap['mu_I'] for ap in age_params])
+    gamma_X = np.array([ap['gamma_X'] for ap in age_params])
+    mu_X = np.array([ap['mu_X'] for ap in age_params])
+    
+    # Ward/ICU parameters with fallbacks
+    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
+    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
+    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
+    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
+    
+    # Differential mortality parameters
+    age_keys = ['young', 'middle', 'elderly']
+    mu_X_untreated = np.zeros(n_ages)
+    mu_ward_denied = np.zeros(n_ages)
+    for a in range(n_ages):
+        age_key = age_keys[a] if a < len(age_keys) else None
+        mu_X_mult = dm_params.get(
+            f'mu_X_untreated_multiplier_{age_key}', dm_params['mu_X_untreated_multiplier']
+        ) if age_key else dm_params['mu_X_untreated_multiplier']
+        mu_ward_mult = dm_params.get(
+            f'mu_ward_denied_icu_multiplier_{age_key}', dm_params['mu_ward_denied_icu_multiplier']
+        ) if age_key else dm_params['mu_ward_denied_icu_multiplier']
+        mu_X_untreated[a] = age_params[a].get('mu_X_untreated', mu_X[a] * mu_X_mult)
+        mu_ward_denied[a] = age_params[a].get('mu_ward_denied_icu', mu_ward[a] * mu_ward_mult)
+    
+    # Transitions
+    new_exposed = lambda_foi * S
+    becoming_infectious = alpha * E
+    
+    # X_queued -> X_admitted flow (gated by ward capacity)
+    admit_to_X_admitted = eta * X_queued * g_ward
+    
+    # X_admitted -> H_ward flow (rate gamma_X_admit, i.e., actual ward admission from X_admitted)
+    gamma_X_admit = np.array([ap.get('gamma_X_admit', ap['eta']) for ap in age_params])
+    admit_ward = gamma_X_admit * X_admitted
+    
+    need_icu = eta_icu * H_ward
+    admit_icu = need_icu * g_icu
+    waning_flow = omega * R
+    new_vaccinations = vaccination_rate * S
+    
+    # Differential mortality
+    # Fraction of ward patients denied ICU
+    fraction_icu_denied = np.where((H_ward > 0) & (need_icu > 0), 1.0 - g_icu, 0.0)
+    effective_mu_ward = mu_ward + (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied
+    
+    # Death flows
+    deaths_I = mu_I * I
+    deaths_X_queued = mu_X_untreated * X_queued  # All X_queued deaths are untreated
+    deaths_X_admitted = mu_X * X_admitted  # All X_admitted deaths are treated
+    deaths_ward_baseline = mu_ward * H_ward
+    deaths_ward_icu_denied = (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied * H_ward
+    deaths_icu = mu_icu * H_icu
+    
+    # Compartment derivatives
+    dS = births_to_S - new_exposed + waning_flow - new_vaccinations - bg_deaths_dict['S']
+    if vax_waning_destination == 'S':
+        dS = dS + waning_flow_vax
+    
+    dE = new_exposed - becoming_infectious - bg_deaths_dict['E']
+    dI = becoming_infectious - (gamma_I + mu_I + sigma) * I - bg_deaths_dict['I']
+    
+    # X_queued: inflow from I, outflow to X_admitted (gated), recovery, untreated deaths, bg deaths
+    dX_queued = sigma * I - (gamma_X + mu_X_untreated) * X_queued - admit_to_X_admitted - bg_deaths_dict['X_queued']
+    
+    # X_admitted: inflow from X_queued (gated), outflow to H_ward, recovery, treated deaths, bg deaths
+    dX_admitted = admit_to_X_admitted - (gamma_X + mu_X) * X_admitted - admit_ward - bg_deaths_dict['X_admitted']
+    
+    dH_ward = admit_ward - (gamma_ward + effective_mu_ward) * H_ward - admit_icu - bg_deaths_dict['H_ward']
+    dH_icu = admit_icu - (gamma_icu + mu_icu) * H_icu - bg_deaths_dict['H_icu']
+    
+    # Recovery from X_queued and X_admitted both contribute to R
+    dR = gamma_I * I + gamma_X * (X_queued + X_admitted) + gamma_ward * H_ward + gamma_icu * H_icu - waning_flow - bg_deaths_dict['R']
+    
+    total_deaths = (deaths_I + deaths_X_queued + deaths_X_admitted +
+                    deaths_ward_baseline + deaths_ward_icu_denied + deaths_icu)
+    dD = total_deaths
+    
+    # Treated deaths: I, X_admitted, ward baseline, ICU
+    dD_treated = deaths_I + deaths_X_admitted + deaths_ward_baseline + deaths_icu
+    # Untreated deaths: X_queued, ward patients denied ICU
+    dD_untreated = deaths_X_queued + deaths_ward_icu_denied
+    
+    return {
+        'dS': dS, 'dE': dE, 'dI': dI,
+        'dX_queued': dX_queued, 'dX_admitted': dX_admitted,
+        'dH_ward': dH_ward, 'dH_icu': dH_icu, 'dR': dR, 'dD': dD,
+        'dD_treated': dD_treated, 'dD_untreated': dD_untreated,
+        'new_exposed_vax_for_tracking': None  # Placeholder, will be filled by vax function
+    }
+
+
+def _compute_vax_derivatives(state, params, lambda_foi_vax, g_ward, g_icu,
+                              births_to_S_vax, new_vaccinations, waning_flow_vax, bg_deaths_dict):
+    """
+    Calculate derivatives for vaccinated compartments.
+    
+    Parameters
+    ----------
+    state : dict
+        Unpacked state compartments.
+    params : dict
+        Model parameters.
+    lambda_foi_vax : np.ndarray
+        Force of infection for vaccinated (reduced by VE_infection).
+    g_ward : float
+        Ward capacity gating factor.
+    g_icu : float
+        ICU capacity gating factor.
+    births_to_S_vax : np.ndarray
+        Birth inflow to S_vax compartment (neonatal vaccination).
+    new_vaccinations : np.ndarray
+        Vaccination flow from S to S_vax.
+    waning_flow_vax : np.ndarray
+        Waning flow from R_vax.
+    bg_deaths_dict : dict
+        Background death flows for all compartments.
+    
+    Returns
+    -------
+    dict
+        Dictionary containing vaccinated compartment derivatives and death flows.
+    """
+    n_ages = params['n_ages']
+    age_params = params['age_params']
+    VE_severe = params['VE_severe']
+    VE_death = params['VE_death']
+    vax_waning_destination = params['vax_waning_destination']
+    dm_params = params['dm_params']
+    
+    # Extract compartments
+    S_vax = state['S_vax']
+    E_vax = state['E_vax']
+    I_vax = state['I_vax']
+    X_queued_vax = state['X_queued_vax']
+    X_admitted_vax = state['X_admitted_vax']
+    H_ward_vax = state['H_ward_vax']
+    H_icu_vax = state['H_icu_vax']
+    R_vax = state['R_vax']
+    
+    # Extract age-specific parameters as arrays
+    alpha = np.array([ap.get('alpha', 0.2) for ap in age_params])
+    sigma = np.array([ap['sigma'] for ap in age_params])
+    eta = np.array([ap['eta'] for ap in age_params])
+    eta_icu = np.array([ap.get('eta_icu', 0.1) for ap in age_params])
+    gamma_I = np.array([ap['gamma_I'] for ap in age_params])
+    mu_I = np.array([ap['mu_I'] for ap in age_params])
+    gamma_X = np.array([ap['gamma_X'] for ap in age_params])
+    mu_X = np.array([ap['mu_X'] for ap in age_params])
+    
+    # Ward/ICU parameters with fallbacks
+    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
+    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
+    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
+    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
+    
+    # Differential mortality parameters
+    age_keys = ['young', 'middle', 'elderly']
+    mu_X_untreated = np.zeros(n_ages)
+    mu_ward_denied = np.zeros(n_ages)
+    for a in range(n_ages):
+        age_key = age_keys[a] if a < len(age_keys) else None
+        mu_X_mult = dm_params.get(
+            f'mu_X_untreated_multiplier_{age_key}', dm_params['mu_X_untreated_multiplier']
+        ) if age_key else dm_params['mu_X_untreated_multiplier']
+        mu_ward_mult = dm_params.get(
+            f'mu_ward_denied_icu_multiplier_{age_key}', dm_params['mu_ward_denied_icu_multiplier']
+        ) if age_key else dm_params['mu_ward_denied_icu_multiplier']
+        mu_X_untreated[a] = age_params[a].get('mu_X_untreated', mu_X[a] * mu_X_mult)
+        mu_ward_denied[a] = age_params[a].get('mu_ward_denied_icu', mu_ward[a] * mu_ward_mult)
+    
+    # Transitions
+    new_exposed_vax = lambda_foi_vax * S_vax
+    becoming_infectious_vax = alpha * E_vax
+    sigma_vax = (1 - VE_severe) * sigma
+    # Preserve/accelerate total I exit when sigma is reduced by vaccination
+    gamma_I_vax = gamma_I + (sigma - sigma_vax)
+    
+    # X_queued_vax -> X_admitted_vax flow (gated by ward capacity)
+    admit_to_X_admitted_vax = eta * X_queued_vax * g_ward
+    
+    # X_admitted_vax -> H_ward_vax flow
+    gamma_X_admit = np.array([ap.get('gamma_X_admit', ap['eta']) for ap in age_params])
+    admit_ward_vax = gamma_X_admit * X_admitted_vax
+    
+    need_icu_vax = eta_icu * H_ward_vax
+    admit_icu_vax = need_icu_vax * g_icu
+    
+    # Differential mortality (vaccinated)
+    mu_I_vax = (1 - VE_death) * mu_I
+    mu_X_vax = (1 - VE_death) * mu_X
+    mu_X_untreated_vax = (1 - VE_death) * mu_X_untreated
+    mu_ward_vax = (1 - VE_death) * mu_ward
+    mu_ward_denied_vax = (1 - VE_death) * mu_ward_denied
+    mu_icu_vax = (1 - VE_death) * mu_icu
+    
+    fraction_icu_vax_denied = np.where((H_ward_vax > 0) & (need_icu_vax > 0), 1.0 - g_icu, 0.0)
+    effective_mu_ward_vax = mu_ward_vax + (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied
+    
+    # Death flows (vaccinated)
+    deaths_I_vax = mu_I_vax * I_vax
+    deaths_X_queued_vax = mu_X_untreated_vax * X_queued_vax  # All X_queued_vax deaths are untreated
+    deaths_X_admitted_vax = mu_X_vax * X_admitted_vax  # All X_admitted_vax deaths are treated
+    deaths_ward_baseline_vax = mu_ward_vax * H_ward_vax
+    deaths_ward_icu_denied_vax = (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied * H_ward_vax
+    deaths_icu_vax = mu_icu_vax * H_icu_vax
+    
+    # Compartment derivatives
+    dS_vax = births_to_S_vax + new_vaccinations - new_exposed_vax - bg_deaths_dict['S_vax']
+    if vax_waning_destination == 'S_vax':
+        dS_vax = dS_vax + waning_flow_vax
+    
+    dE_vax = new_exposed_vax - becoming_infectious_vax - bg_deaths_dict['E_vax']
+    dI_vax = becoming_infectious_vax - (gamma_I_vax + mu_I_vax + sigma_vax) * I_vax - bg_deaths_dict['I_vax']
+    
+    # X_queued_vax: inflow from I_vax, outflow to X_admitted_vax (gated), recovery, untreated deaths, bg deaths
+    dX_queued_vax = sigma_vax * I_vax - (gamma_X + mu_X_untreated_vax) * X_queued_vax - admit_to_X_admitted_vax - bg_deaths_dict['X_queued_vax']
+    
+    # X_admitted_vax: inflow from X_queued_vax (gated), outflow to H_ward_vax, recovery, treated deaths, bg deaths
+    dX_admitted_vax = admit_to_X_admitted_vax - (gamma_X + mu_X_vax) * X_admitted_vax - admit_ward_vax - bg_deaths_dict['X_admitted_vax']
+    
+    dH_ward_vax = admit_ward_vax - (gamma_ward + effective_mu_ward_vax) * H_ward_vax - admit_icu_vax - bg_deaths_dict['H_ward_vax']
+    dH_icu_vax = admit_icu_vax - (gamma_icu + mu_icu_vax) * H_icu_vax - bg_deaths_dict['H_icu_vax']
+    
+    # Recovery from X_queued_vax and X_admitted_vax both contribute to R_vax
+    dR_vax = (gamma_I_vax * I_vax + gamma_X * (X_queued_vax + X_admitted_vax) + gamma_ward * H_ward_vax + 
+              gamma_icu * H_icu_vax - waning_flow_vax - bg_deaths_dict['R_vax'])
+    
+    total_deaths_vax = (deaths_I_vax + deaths_X_queued_vax + deaths_X_admitted_vax +
+                        deaths_ward_baseline_vax + deaths_ward_icu_denied_vax + deaths_icu_vax)
+    dD_vax = total_deaths_vax
+    
+    # Treated and untreated deaths
+    dD_vax_treated = deaths_I_vax + deaths_X_admitted_vax + deaths_ward_baseline_vax + deaths_icu_vax
+    dD_vax_untreated = deaths_X_queued_vax + deaths_ward_icu_denied_vax
+    
+    return {
+        'dS_vax': dS_vax, 'dE_vax': dE_vax, 'dI_vax': dI_vax,
+        'dX_queued_vax': dX_queued_vax, 'dX_admitted_vax': dX_admitted_vax,
+        'dH_ward_vax': dH_ward_vax, 'dH_icu_vax': dH_icu_vax, 'dR_vax': dR_vax, 'dD_vax': dD_vax,
+        'dD_vax_treated': dD_vax_treated, 'dD_vax_untreated': dD_vax_untreated,
+        'new_exposed_vax': new_exposed_vax
+    }
+
+
 def _master_deriv(y, t, params):
     """
     Compute derivatives for the master SEIXHRD model with vaccination and demographics.
@@ -448,49 +831,20 @@ def _master_deriv(y, t, params):
     
     # Unpack state
     state = _unpack_state(y, n_ages)
-    S = state['S']
-    E = state['E']
-    I = state['I']
-    X_queued = state['X_queued']
-    X_admitted = state['X_admitted']
-    H_ward = state['H_ward']
-    H_icu = state['H_icu']
-    R = state['R']
-    D = state['D']
-    S_vax = state['S_vax']
-    E_vax = state['E_vax']
-    I_vax = state['I_vax']
-    X_queued_vax = state['X_queued_vax']
-    X_admitted_vax = state['X_admitted_vax']
-    H_ward_vax = state['H_ward_vax']
-    H_icu_vax = state['H_icu_vax']
-    R_vax = state['R_vax']
-    D_vax = state['D_vax']
-    # Tracked accumulators (will have their rates computed)
-    # D_treated, D_untreated, D_vax_treated, D_vax_untreated, cum_breakthrough,
-    # cum_births, cum_background_deaths
     
     # Extract parameters
     beta_base = params['beta_base']
-    contact_matrix = params['contact_matrix']
-    age_params = params['age_params']
+    theta_X = params['theta_X']
+    theta_H = params['theta_H']
+    theta_vax = params['theta_vax']
+    omega_vax = params['omega_vax']
     K_ward = params['K_ward']
     K_icu = params['K_icu']
     n_ward = params['n_ward']
     n_icu = params['n_icu']
-    VE_infection = params['VE_infection']
-    VE_severe = params['VE_severe']
-    VE_death = params['VE_death']
-    theta_X = params['theta_X']
-    theta_H = params['theta_H']
-    theta_vax = params['theta_vax']
-    omega = params['omega']
-    omega_vax = params['omega_vax']
-    vax_waning_destination = params['vax_waning_destination']
-    vaccination_rate = params['vaccination_rate']
     seasonal_params = params['seasonal_params']
     interventions = params['interventions']
-    dm_params = params['dm_params']
+    vaccination_rate = params['vaccination_rate']
     
     # Extract demographic parameters
     demo_params = params.get('demographic_params', {})
@@ -516,22 +870,18 @@ def _master_deriv(y, t, params):
     # Capacity Gating
     # ========================================
     # Count admitted-but-not-yet-moved patients toward capacity to close the "ghost ward" gap
-    H_ward_total = (np.sum(H_ward) + np.sum(H_ward_vax) +
-                    np.sum(X_admitted) + np.sum(X_admitted_vax))
-    H_icu_total = np.sum(H_icu) + np.sum(H_icu_vax)
+    H_ward_total = (np.sum(state['H_ward']) + np.sum(state['H_ward_vax']) +
+                    np.sum(state['X_admitted']) + np.sum(state['X_admitted_vax']))
+    H_icu_total = np.sum(state['H_icu']) + np.sum(state['H_icu_vax'])
     g_ward = _hill_gate_vectorized(H_ward_total, K_ward, n_ward)
     g_icu = _hill_gate_vectorized(H_icu_total, K_icu, n_icu)
     
     # ========================================
-    # Force of Infection (Vectorized)
+    # Force of Infection
     # ========================================
-    # Live population per age group (exclude dead)
-    # X_total = X_queued + X_admitted for live population count
-    X_total = X_queued + X_admitted
-    X_vax_total = X_queued_vax + X_admitted_vax
-    live_pop = (S + E + I + X_total + H_ward + H_icu + R +
-                S_vax + E_vax + I_vax + X_vax_total + H_ward_vax + H_icu_vax + R_vax)
-    total_live_pop = np.sum(live_pop)
+    lambda_foi, lambda_foi_vax, live_pop, total_live_pop = _compute_force_of_infection(
+        state, params, beta_t, theta_X, theta_H, theta_vax
+    )
     
     # ========================================
     # Demographic Flows (Births and Background Deaths)
@@ -542,235 +892,39 @@ def _master_deriv(y, t, params):
     births_to_S_vax = births_total * neonatal_vax_rate
     
     # Background deaths: age-specific mortality applied to all living compartments
-    # Unvaccinated compartments
-    bg_deaths_S = compute_background_death_rate(S, mu_background)
-    bg_deaths_E = compute_background_death_rate(E, mu_background)
-    bg_deaths_I = compute_background_death_rate(I, mu_background)
-    bg_deaths_X_queued = compute_background_death_rate(X_queued, mu_background)
-    bg_deaths_X_admitted = compute_background_death_rate(X_admitted, mu_background)
-    bg_deaths_H_ward = compute_background_death_rate(H_ward, mu_background)
-    bg_deaths_H_icu = compute_background_death_rate(H_icu, mu_background)
-    bg_deaths_R = compute_background_death_rate(R, mu_background)
-    
-    # Vaccinated compartments
-    bg_deaths_S_vax = compute_background_death_rate(S_vax, mu_background)
-    bg_deaths_E_vax = compute_background_death_rate(E_vax, mu_background)
-    bg_deaths_I_vax = compute_background_death_rate(I_vax, mu_background)
-    bg_deaths_X_queued_vax = compute_background_death_rate(X_queued_vax, mu_background)
-    bg_deaths_X_admitted_vax = compute_background_death_rate(X_admitted_vax, mu_background)
-    bg_deaths_H_ward_vax = compute_background_death_rate(H_ward_vax, mu_background)
-    bg_deaths_H_icu_vax = compute_background_death_rate(H_icu_vax, mu_background)
-    bg_deaths_R_vax = compute_background_death_rate(R_vax, mu_background)
+    bg_deaths_dict = {}
+    for comp_name in ['S', 'E', 'I', 'X_queued', 'X_admitted', 'H_ward', 'H_icu', 'R',
+                      'S_vax', 'E_vax', 'I_vax', 'X_queued_vax', 'X_admitted_vax', 
+                      'H_ward_vax', 'H_icu_vax', 'R_vax']:
+        bg_deaths_dict[comp_name] = compute_background_death_rate(state[comp_name], mu_background)
     
     # Total background deaths (for tracking)
-    total_bg_deaths = (bg_deaths_S + bg_deaths_E + bg_deaths_I + bg_deaths_X_queued + 
-                       bg_deaths_X_admitted + bg_deaths_H_ward + bg_deaths_H_icu + bg_deaths_R +
-                       bg_deaths_S_vax + bg_deaths_E_vax + bg_deaths_I_vax + bg_deaths_X_queued_vax +
-                       bg_deaths_X_admitted_vax + bg_deaths_H_ward_vax + bg_deaths_H_icu_vax + bg_deaths_R_vax)
-    
-    # Avoid division by zero
-    live_pop_safe = np.maximum(live_pop, 1e-10)
-    
-    # Infectious contributions (unvaccinated and vaccinated)
-    # Both X_queued and X_admitted contribute to infectiousness
-    H_contrib = H_ward + H_icu + H_ward_vax + H_icu_vax
-    infectious_unvax = I + theta_X * X_total
-    infectious_vax = theta_vax * (I_vax + theta_X * X_vax_total)
-    
-    # Total infectious proportion per age group
-    infectious_fraction = (infectious_unvax + infectious_vax + theta_H * H_contrib) / live_pop_safe
-    
-    # Calculate absolute effective infectious population (weighted by infectiousness)
-    I_eff_absolute = infectious_fraction * live_pop_safe
-    
-    # Vectorized FOI: lambda_j = beta_t * sum_i(C_ij * I_eff_i) / N_j
-    # Assumes contact_matrix[i,j] is contacts per person in i directed at j
-    # 1. Total infectious contacts from i to j = C_ij * I_eff_i
-    # 2. Sum over i to get total contacts hitting group j
-    # 3. Divide by N_j to get contacts per susceptible person
-    lambda_foi = beta_t * (contact_matrix.T @ I_eff_absolute) / live_pop_safe
-    
-    # Force of infection for vaccinated (reduced by VE_infection)
-    lambda_foi_vax = (1 - VE_infection) * lambda_foi
+    total_bg_deaths = sum(bg_deaths_dict.values())
     
     # ========================================
-    # Extract Age-Specific Parameters as Arrays
+    # Compute Waning Flow (needed by both unvax and vax derivatives)
     # ========================================
-    alpha = np.array([ap.get('alpha', 0.2) for ap in age_params])
-    sigma = np.array([ap['sigma'] for ap in age_params])
-    eta = np.array([ap['eta'] for ap in age_params])
-    eta_icu = np.array([ap.get('eta_icu', 0.1) for ap in age_params])
-    gamma_I = np.array([ap['gamma_I'] for ap in age_params])
-    mu_I = np.array([ap['mu_I'] for ap in age_params])
-    gamma_X = np.array([ap['gamma_X'] for ap in age_params])
-    mu_X = np.array([ap['mu_X'] for ap in age_params])
-    
-    # Ward/ICU parameters with fallbacks
-    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
-    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
-    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
-    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
-    
-    # Differential mortality parameters
-    age_keys = ['young', 'middle', 'elderly']
-    mu_X_untreated = np.zeros(n_ages)
-    mu_ward_denied = np.zeros(n_ages)
-    for a in range(n_ages):
-        age_key = age_keys[a] if a < len(age_keys) else None
-        mu_X_mult = dm_params.get(
-            f'mu_X_untreated_multiplier_{age_key}', dm_params['mu_X_untreated_multiplier']
-        ) if age_key else dm_params['mu_X_untreated_multiplier']
-        mu_ward_mult = dm_params.get(
-            f'mu_ward_denied_icu_multiplier_{age_key}', dm_params['mu_ward_denied_icu_multiplier']
-        ) if age_key else dm_params['mu_ward_denied_icu_multiplier']
-        mu_X_untreated[a] = age_params[a].get('mu_X_untreated', mu_X[a] * mu_X_mult)
-        mu_ward_denied[a] = age_params[a].get('mu_ward_denied_icu', mu_ward[a] * mu_ward_mult)
+    omega = params['omega']
+    waning_flow_vax = omega_vax * state['R_vax']
+    new_vaccinations = vaccination_rate * state['S']
     
     # ========================================
-    # Transitions (Unvaccinated)
+    # Compute Derivatives Using Helper Functions
     # ========================================
-    new_exposed = lambda_foi * S
-    becoming_infectious = alpha * E
+    unvax_results = _compute_unvax_derivatives(
+        state, params, lambda_foi, g_ward, g_icu, 
+        births_to_S, waning_flow_vax, bg_deaths_dict
+    )
     
-    # X_queued -> X_admitted flow (gated by ward capacity)
-    admit_to_X_admitted = eta * X_queued * g_ward
-    
-    # X_admitted -> H_ward flow (rate gamma_X_admit, i.e., actual ward admission from X_admitted)
-    gamma_X_admit = np.array([ap.get('gamma_X_admit', ap['eta']) for ap in age_params])
-    admit_ward = gamma_X_admit * X_admitted
-    
-    need_icu = eta_icu * H_ward
-    admit_icu = need_icu * g_icu
-    waning_flow = omega * R
-    new_vaccinations = vaccination_rate * S
-    
-    # ========================================
-    # Transitions (Vaccinated)
-    # ========================================
-    new_exposed_vax = lambda_foi_vax * S_vax
-    becoming_infectious_vax = alpha * E_vax
-    sigma_vax = (1 - VE_severe) * sigma
-    # Preserve/accelerate total I exit when sigma is reduced by vaccination
-    gamma_I_vax = gamma_I + (sigma - sigma_vax)
-    
-    # X_queued_vax -> X_admitted_vax flow (gated by ward capacity)
-    admit_to_X_admitted_vax = eta * X_queued_vax * g_ward
-    
-    # X_admitted_vax -> H_ward_vax flow
-    admit_ward_vax = gamma_X_admit * X_admitted_vax
-    
-    need_icu_vax = eta_icu * H_ward_vax
-    admit_icu_vax = need_icu_vax * g_icu
-    # R_vax waning uses omega_vax (vaccine-specific waning rate)
-    # This allows independent control of natural vs vaccine-induced immunity duration
-    waning_flow_vax = omega_vax * R_vax
-    
-    # ========================================
-    # Differential Mortality (Unvaccinated)
-    # ========================================
-    # With X_queued/X_admitted split:
-    # - X_queued deaths are ALL untreated (waiting for admission)
-    # - X_admitted deaths are ALL treated (secured ward spot)
-    # This eliminates the "instantaneous mortality fallacy"
-    
-    # Fraction of ward patients denied ICU (this logic remains)
-    fraction_icu_denied = np.where((H_ward > 0) & (need_icu > 0), 1.0 - g_icu, 0.0)
-    effective_mu_ward = mu_ward + (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied
-    
-    # Death flows (unvaccinated)
-    deaths_I = mu_I * I
-    deaths_X_queued = mu_X_untreated * X_queued  # All X_queued deaths are untreated
-    deaths_X_admitted = mu_X * X_admitted  # All X_admitted deaths are treated
-    deaths_ward_baseline = mu_ward * H_ward
-    deaths_ward_icu_denied = (mu_ward_denied - mu_ward) * eta_icu * fraction_icu_denied * H_ward
-    deaths_icu = mu_icu * H_icu
-    
-    # ========================================
-    # Differential Mortality (Vaccinated)
-    # ========================================
-    mu_I_vax = (1 - VE_death) * mu_I
-    mu_X_vax = (1 - VE_death) * mu_X
-    mu_X_untreated_vax = (1 - VE_death) * mu_X_untreated
-    mu_ward_vax = (1 - VE_death) * mu_ward
-    mu_ward_denied_vax = (1 - VE_death) * mu_ward_denied
-    mu_icu_vax = (1 - VE_death) * mu_icu
-    
-    fraction_icu_vax_denied = np.where((H_ward_vax > 0) & (need_icu_vax > 0), 1.0 - g_icu, 0.0)
-    effective_mu_ward_vax = mu_ward_vax + (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied
-    
-    # Death flows (vaccinated)
-    deaths_I_vax = mu_I_vax * I_vax
-    deaths_X_queued_vax = mu_X_untreated_vax * X_queued_vax  # All X_queued_vax deaths are untreated
-    deaths_X_admitted_vax = mu_X_vax * X_admitted_vax  # All X_admitted_vax deaths are treated
-    deaths_ward_baseline_vax = mu_ward_vax * H_ward_vax
-    deaths_ward_icu_denied_vax = (mu_ward_denied_vax - mu_ward_vax) * eta_icu * fraction_icu_vax_denied * H_ward_vax
-    deaths_icu_vax = mu_icu_vax * H_icu_vax
-    
-    # ========================================
-    # Compartment Derivatives (Unvaccinated)
-    # ========================================
-    # Births enter S, background deaths leave all living compartments
-    dS = births_to_S - new_exposed + waning_flow - new_vaccinations - bg_deaths_S
-    if vax_waning_destination == 'S':
-        dS = dS + waning_flow_vax
-    
-    dE = new_exposed - becoming_infectious - bg_deaths_E
-    dI = becoming_infectious - (gamma_I + mu_I + sigma) * I - bg_deaths_I
-    
-    # X_queued: inflow from I, outflow to X_admitted (gated), recovery, untreated deaths, bg deaths
-    dX_queued = sigma * I - (gamma_X + mu_X_untreated) * X_queued - admit_to_X_admitted - bg_deaths_X_queued
-    
-    # X_admitted: inflow from X_queued (gated), outflow to H_ward, recovery, treated deaths, bg deaths
-    dX_admitted = admit_to_X_admitted - (gamma_X + mu_X) * X_admitted - admit_ward - bg_deaths_X_admitted
-    
-    dH_ward = admit_ward - (gamma_ward + effective_mu_ward) * H_ward - admit_icu - bg_deaths_H_ward
-    dH_icu = admit_icu - (gamma_icu + mu_icu) * H_icu - bg_deaths_H_icu
-    
-    # Recovery from X_queued and X_admitted both contribute to R
-    dR = gamma_I * I + gamma_X * (X_queued + X_admitted) + gamma_ward * H_ward + gamma_icu * H_icu - waning_flow - bg_deaths_R
-    
-    total_deaths = (deaths_I + deaths_X_queued + deaths_X_admitted +
-                    deaths_ward_baseline + deaths_ward_icu_denied + deaths_icu)
-    dD = total_deaths
-    
-    # ========================================
-    # Compartment Derivatives (Vaccinated)
-    # ========================================
-    # Neonatal vaccinations enter S_vax, background deaths leave all living compartments
-    dS_vax = births_to_S_vax + new_vaccinations - new_exposed_vax - bg_deaths_S_vax
-    if vax_waning_destination == 'S_vax':
-        dS_vax = dS_vax + waning_flow_vax
-    
-    dE_vax = new_exposed_vax - becoming_infectious_vax - bg_deaths_E_vax
-    dI_vax = becoming_infectious_vax - (gamma_I_vax + mu_I_vax + sigma_vax) * I_vax - bg_deaths_I_vax
-    
-    # X_queued_vax: inflow from I_vax, outflow to X_admitted_vax (gated), recovery, untreated deaths, bg deaths
-    dX_queued_vax = sigma_vax * I_vax - (gamma_X + mu_X_untreated_vax) * X_queued_vax - admit_to_X_admitted_vax - bg_deaths_X_queued_vax
-    
-    # X_admitted_vax: inflow from X_queued_vax (gated), outflow to H_ward_vax, recovery, treated deaths, bg deaths
-    dX_admitted_vax = admit_to_X_admitted_vax - (gamma_X + mu_X_vax) * X_admitted_vax - admit_ward_vax - bg_deaths_X_admitted_vax
-    
-    dH_ward_vax = admit_ward_vax - (gamma_ward + effective_mu_ward_vax) * H_ward_vax - admit_icu_vax - bg_deaths_H_ward_vax
-    dH_icu_vax = admit_icu_vax - (gamma_icu + mu_icu_vax) * H_icu_vax - bg_deaths_H_icu_vax
-    
-    # Recovery from X_queued_vax and X_admitted_vax both contribute to R_vax
-    dR_vax = (gamma_I_vax * I_vax + gamma_X * (X_queued_vax + X_admitted_vax) + gamma_ward * H_ward_vax + 
-              gamma_icu * H_icu_vax - waning_flow_vax - bg_deaths_R_vax)
-    
-    total_deaths_vax = (deaths_I_vax + deaths_X_queued_vax + deaths_X_admitted_vax +
-                        deaths_ward_baseline_vax + deaths_ward_icu_denied_vax + deaths_icu_vax)
-    dD_vax = total_deaths_vax
+    vax_results = _compute_vax_derivatives(
+        state, params, lambda_foi_vax, g_ward, g_icu,
+        births_to_S_vax, new_vaccinations, waning_flow_vax, bg_deaths_dict
+    )
     
     # ========================================
     # Tracked Variable Derivatives
     # ========================================
-    # Treated deaths: I, X_admitted, ward baseline, ICU
-    dD_treated = deaths_I + deaths_X_admitted + deaths_ward_baseline + deaths_icu
-    # Untreated deaths: X_queued, ward patients denied ICU
-    dD_untreated = deaths_X_queued + deaths_ward_icu_denied
-    dD_vax_treated = deaths_I_vax + deaths_X_admitted_vax + deaths_ward_baseline_vax + deaths_icu_vax
-    dD_vax_untreated = deaths_X_queued_vax + deaths_ward_icu_denied_vax
-    d_cum_breakthrough = new_exposed_vax  # Rate of breakthrough infections
+    d_cum_breakthrough = vax_results['new_exposed_vax']  # Rate of breakthrough infections
     d_cum_births = births_total  # Rate of new births
     d_cum_background_deaths = total_bg_deaths  # Rate of background deaths
     
@@ -778,14 +932,28 @@ def _master_deriv(y, t, params):
     # Pack Derivatives
     # ========================================
     derivs = {
-        'S': dS, 'E': dE, 'I': dI, 
-        'X_queued': dX_queued, 'X_admitted': dX_admitted,
-        'H_ward': dH_ward, 'H_icu': dH_icu, 'R': dR, 'D': dD,
-        'S_vax': dS_vax, 'E_vax': dE_vax, 'I_vax': dI_vax,
-        'X_queued_vax': dX_queued_vax, 'X_admitted_vax': dX_admitted_vax,
-        'H_ward_vax': dH_ward_vax, 'H_icu_vax': dH_icu_vax, 'R_vax': dR_vax, 'D_vax': dD_vax,
-        'D_treated': dD_treated, 'D_untreated': dD_untreated,
-        'D_vax_treated': dD_vax_treated, 'D_vax_untreated': dD_vax_untreated,
+        'S': unvax_results['dS'], 
+        'E': unvax_results['dE'], 
+        'I': unvax_results['dI'], 
+        'X_queued': unvax_results['dX_queued'], 
+        'X_admitted': unvax_results['dX_admitted'],
+        'H_ward': unvax_results['dH_ward'], 
+        'H_icu': unvax_results['dH_icu'], 
+        'R': unvax_results['dR'], 
+        'D': unvax_results['dD'],
+        'S_vax': vax_results['dS_vax'], 
+        'E_vax': vax_results['dE_vax'], 
+        'I_vax': vax_results['dI_vax'],
+        'X_queued_vax': vax_results['dX_queued_vax'], 
+        'X_admitted_vax': vax_results['dX_admitted_vax'],
+        'H_ward_vax': vax_results['dH_ward_vax'], 
+        'H_icu_vax': vax_results['dH_icu_vax'], 
+        'R_vax': vax_results['dR_vax'], 
+        'D_vax': vax_results['dD_vax'],
+        'D_treated': unvax_results['dD_treated'], 
+        'D_untreated': unvax_results['dD_untreated'],
+        'D_vax_treated': vax_results['dD_vax_treated'], 
+        'D_vax_untreated': vax_results['dD_vax_untreated'],
         'cum_breakthrough': d_cum_breakthrough,
         'cum_births': d_cum_births,
         'cum_background_deaths': d_cum_background_deaths
