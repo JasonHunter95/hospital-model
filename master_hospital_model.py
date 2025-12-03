@@ -35,13 +35,11 @@ import numpy as np
 from scipy.integrate import odeint, solve_ivp
 import config
 from simulation_helpers import (
-    hill_gate,
-    _validate_age_structured_inputs,
-    _coerce_initial_vector,
-    _pack_state,
-    _unpack_state,
-    _master_deriv_solve_ivp,
-    _master_deriv,
+    validate_age_structured_inputs,
+    coerce_initial_vector,
+    pack_state,
+    master_deriv_solve_ivp,
+    master_deriv,
     validate_demographic_params
 )
 from time_varying_helpers import seasonal_forcing, policy_multiplier
@@ -393,7 +391,7 @@ def simulate_master_hospital_model(
     dt = time_step
     
     # Validate inputs
-    _validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage)
+    validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage)
     
     # Handle coverage - convert to list if scalar
     if not isinstance(coverage, list):
@@ -466,35 +464,35 @@ def simulate_master_hospital_model(
     }
     
     # Unvaccinated compartments
-    I = _coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
-    E = _coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
+    I = coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
+    E = coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
     
     # Handle X compartments (split into queued and admitted)
     X_queued_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_by_age', [0, 0, 0])
     X_admitted_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_by_age', [0, 0, 0])
     
-    X_queued = _coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
-    X_admitted = _coerce_initial_vector(ic_defaults, 'X_admitted_by_age', n_ages, X_admitted_default)
+    X_queued = coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
+    X_admitted = coerce_initial_vector(ic_defaults, 'X_admitted_by_age', n_ages, X_admitted_default)
     
-    H_ward = _coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
-    H_icu = _coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
-    R = _coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
-    D = _coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
+    H_ward = coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
+    H_icu = coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
+    R = coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
+    D = coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
     
     # Vaccinated compartments - handle X split
-    E_vax = _coerce_initial_vector(ic_defaults, 'E_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_vax_by_age'])
-    I_vax = _coerce_initial_vector(ic_defaults, 'I_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_vax_by_age'])
+    E_vax = coerce_initial_vector(ic_defaults, 'E_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_vax_by_age'])
+    I_vax = coerce_initial_vector(ic_defaults, 'I_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_vax_by_age'])
     
     X_queued_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_vax_by_age', [0, 0, 0])
     X_admitted_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_vax_by_age', [0, 0, 0])
     
-    X_queued_vax = _coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
-    X_admitted_vax = _coerce_initial_vector(ic_defaults, 'X_admitted_vax_by_age', n_ages, X_admitted_vax_default)
+    X_queued_vax = coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
+    X_admitted_vax = coerce_initial_vector(ic_defaults, 'X_admitted_vax_by_age', n_ages, X_admitted_vax_default)
     
-    H_ward_vax = _coerce_initial_vector(ic_defaults, 'H_ward_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_vax_by_age'])
-    H_icu_vax = _coerce_initial_vector(ic_defaults, 'H_icu_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_vax_by_age'])
-    R_vax = _coerce_initial_vector(ic_defaults, 'R_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_vax_by_age'])
-    D_vax = _coerce_initial_vector(ic_defaults, 'D_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_vax_by_age'])
+    H_ward_vax = coerce_initial_vector(ic_defaults, 'H_ward_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_vax_by_age'])
+    H_icu_vax = coerce_initial_vector(ic_defaults, 'H_icu_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_vax_by_age'])
+    R_vax = coerce_initial_vector(ic_defaults, 'R_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_vax_by_age'])
+    D_vax = coerce_initial_vector(ic_defaults, 'D_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_vax_by_age'])
     
     # Calculate S_vax based on coverage (initial vaccinated susceptible population)
     # If S_vax_by_age is explicitly provided in initial_conditions, use it
@@ -504,7 +502,7 @@ def simulate_master_hospital_model(
     X_vax_total_init = [X_queued_vax[a] + X_admitted_vax[a] for a in range(n_ages)]
     
     if 'S_vax_by_age' in ic_defaults and ic_defaults['S_vax_by_age'] != config.DEFAULT_INITIAL_CONDITIONS.get('S_vax_by_age', [0, 0, 0]):
-        S_vax = _coerce_initial_vector(ic_defaults, 'S_vax_by_age', n_ages, [0, 0, 0])
+        S_vax = coerce_initial_vector(ic_defaults, 'S_vax_by_age', n_ages, [0, 0, 0])
         # Calculate remaining S after all compartments
         S = [max(0, age_pops[a] - E[a] - I[a] - X_total_init[a] - H_ward[a] - H_icu[a] - R[a] - D[a]
                  - S_vax[a] - E_vax[a] - I_vax[a] - X_vax_total_init[a] - H_ward_vax[a] - H_icu_vax[a] - R_vax[a] - D_vax[a]) 
@@ -602,7 +600,7 @@ def simulate_master_hospital_model(
         'cum_births': np.array(cum_births),
         'cum_background_deaths': np.array(cum_background_deaths),
     }
-    y0 = _pack_state(initial_state, n_ages)
+    y0 = pack_state(initial_state, n_ages)
     
     # ========================================
     # Time Points for Integration
@@ -623,7 +621,7 @@ def simulate_master_hospital_model(
     if solver == 'odeint':
         # Use scipy.integrate.odeint (LSODA)
         solution = odeint(
-            _master_deriv,
+            master_deriv,
             y0,
             t_eval,
             args=(ode_params,),
@@ -635,7 +633,7 @@ def simulate_master_hospital_model(
     elif solver == 'solve_ivp':
         # Use scipy.integrate.solve_ivp with configurable method
         sol = solve_ivp(
-            _master_deriv_solve_ivp,
+            master_deriv_solve_ivp,
             (0, Tmax),
             y0,
             method=solver_method,

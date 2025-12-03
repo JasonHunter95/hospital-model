@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from simulation_helpers import hill_gate, _validate_age_structured_inputs, _coerce_initial_vector
+from simulation_helpers import hill_gate, validate_age_structured_inputs, coerce_initial_vector
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 
 
@@ -141,30 +141,30 @@ class TestValidateAgeStructuredInputs:
     
     def test_valid_inputs_pass(self, valid_inputs):
         """Valid inputs should not raise any exception."""
-        _validate_age_structured_inputs(**valid_inputs)  # Should not raise
+        validate_age_structured_inputs(**valid_inputs)  # Should not raise
     
     def test_scalar_coverage_valid(self, valid_inputs):
         """Scalar coverage should be accepted."""
         valid_inputs['coverage'] = 0.5
-        _validate_age_structured_inputs(**valid_inputs)  # Should not raise
+        validate_age_structured_inputs(**valid_inputs)  # Should not raise
     
     def test_mismatched_age_params_length(self, valid_inputs):
         """age_params length mismatch should raise ValueError."""
         valid_inputs['age_params'] = [{'sigma': 0.1}, {'sigma': 0.2}]  # Only 2
         with pytest.raises(ValueError, match="age_params length"):
-            _validate_age_structured_inputs(**valid_inputs)
+            validate_age_structured_inputs(**valid_inputs)
     
     def test_wrong_contact_matrix_shape(self, valid_inputs):
         """Wrong contact matrix shape should raise ValueError."""
         valid_inputs['contact_matrix'] = np.array([[1, 2], [3, 4]])  # 2x2 not 3x3
         with pytest.raises(ValueError, match="contact_matrix"):
-            _validate_age_structured_inputs(**valid_inputs)
+            validate_age_structured_inputs(**valid_inputs)
     
     def test_coverage_list_wrong_length(self, valid_inputs):
         """Coverage list length mismatch should raise ValueError."""
         valid_inputs['coverage'] = [0.1, 0.2]  # Only 2
         with pytest.raises(ValueError, match="coverage length"):
-            _validate_age_structured_inputs(**valid_inputs)
+            validate_age_structured_inputs(**valid_inputs)
     
     def test_empty_age_pops(self, valid_inputs):
         """Empty age_pops should still validate dimensions correctly."""
@@ -172,7 +172,7 @@ class TestValidateAgeStructuredInputs:
         valid_inputs['age_params'] = []
         valid_inputs['contact_matrix'] = np.array([]).reshape(0, 0)
         valid_inputs['coverage'] = []
-        _validate_age_structured_inputs(**valid_inputs)  # Should not raise
+        validate_age_structured_inputs(**valid_inputs)  # Should not raise
     
     def test_single_age_group(self):
         """Single age group should work correctly."""
@@ -182,13 +182,13 @@ class TestValidateAgeStructuredInputs:
             'age_pops': [10000],
             'coverage': [0.5],
         }
-        _validate_age_structured_inputs(**inputs)  # Should not raise
+        validate_age_structured_inputs(**inputs)  # Should not raise
     
     def test_contact_matrix_not_square(self, valid_inputs):
         """Non-square contact matrix should raise ValueError."""
         valid_inputs['contact_matrix'] = np.array([[1, 2, 3], [4, 5, 6]])  # 2x3
         with pytest.raises(ValueError, match="contact_matrix"):
-            _validate_age_structured_inputs(**valid_inputs)
+            validate_age_structured_inputs(**valid_inputs)
 
 
 # ========================================
@@ -201,50 +201,50 @@ class TestCoerceInitialVector:
     def test_exact_length_returns_copy(self):
         """Vector of exact length should be returned as-is (copy)."""
         ic = {'I_by_age': [10, 20, 30]}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
         assert result == [10, 20, 30]
     
     def test_returns_copy_not_reference(self):
         """Should return a copy, not the original list."""
         ic = {'I_by_age': [10, 20, 30]}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
         result[0] = 999
         assert ic['I_by_age'][0] == 10  # Original unchanged
     
     def test_short_vector_extended_with_zeros(self):
         """Vector shorter than n_ages should be extended with zeros."""
         ic = {'I_by_age': [10]}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
         assert result == [10, 0, 0]
     
     def test_long_vector_truncated(self):
         """Vector longer than n_ages should be truncated."""
         ic = {'I_by_age': [10, 20, 30, 40, 50]}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [0, 0, 0])
         assert result == [10, 20, 30]
     
     def test_missing_key_uses_fallback(self):
         """Missing key should use fallback value."""
         ic = {}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [5, 5, 5])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [5, 5, 5])
         assert result == [5, 5, 5]
     
     def test_fallback_extended_if_needed(self):
         """Fallback should be extended if shorter than n_ages."""
         ic = {}
-        result = _coerce_initial_vector(ic, 'I_by_age', 5, [1, 2])
+        result = coerce_initial_vector(ic, 'I_by_age', 5, [1, 2])
         assert result == [1, 2, 0, 0, 0]
     
     def test_empty_vector_returns_zeros(self):
         """Empty vector should return all zeros."""
         ic = {'I_by_age': []}
-        result = _coerce_initial_vector(ic, 'I_by_age', 3, [])
+        result = coerce_initial_vector(ic, 'I_by_age', 3, [])
         assert result == [0, 0, 0]
     
     def test_n_ages_zero(self):
         """n_ages of 0 should return empty list."""
         ic = {'I_by_age': [10, 20, 30]}
-        result = _coerce_initial_vector(ic, 'I_by_age', 0, [])
+        result = coerce_initial_vector(ic, 'I_by_age', 0, [])
         assert result == []
 
 

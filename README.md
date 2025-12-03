@@ -784,7 +784,7 @@ python -m pytest tests/ -v -k "conservation"
 | `test_demographic_dynamics.py` | Births, background deaths, population conservation with demographics, neonatal vaccination |
 | `test_differential_mortality.py` | D_treated vs D_untreated tracking, capacity-dependent mortality, gating correlation |
 | `test_edge_cases.py` | No infection, full vaccination, zero/high capacity, single age group, extreme parameters |
-| `test_helper_functions.py` | `hill_gate`, `_validate_age_structured_inputs`, `_coerce_initial_vector`, `seasonal_forcing`, `policy_multiplier` |
+| `test_helper_functions.py` | `hill_gate`, `validate_age_structured_inputs`, `coerce_initial_vector`, `seasonal_forcing`, `policy_multiplier` |
 | `test_master_model_integration.py` | Smoke tests, output structure, population conservation, death monotonicity, compartment flows |
 | `test_scenario_validation.py` | Scenario parameter validation, registry completeness, healthcare system configs |
 | `test_solver_options.py` | ODE solver options (odeint, solve_ivp), tolerances, methods (BDF, Radau, RK45, LSODA) |
@@ -799,8 +799,8 @@ Tests are organized using pytest classes for logical grouping:
 ```python
 # Example: tests/test_helper_functions.py
 class TestHillGate:           # 13 tests for hill_gate()
-class TestValidateInputs:     # 8 tests for _validate_age_structured_inputs()
-class TestCoerceVector:       # 8 tests for _coerce_initial_vector()
+class TestValidateInputs:     # 8 tests for validate_age_structured_inputs()
+class TestCoerceVector:       # 8 tests for coerce_initial_vector()
 class TestSeasonalForcing:    # 12 tests for seasonal_forcing()
 class TestPolicyMultiplier:   # 14 tests for policy_multiplier()
 ```
@@ -934,7 +934,7 @@ hospital-model/
 | `config.py` | Complete scenario bundles, transmission/healthcare/intervention presets, vaccination strategies, demographic presets, and all parameter definitions |
 | `config_helpers.py` | Helper functions: `get_scenario_params()`, `get_vaccine_profile()`, `compare_vaccine_profiles()`, `create_sensitivity_variants()`, scenario validation |
 | `master_hospital_model.py` | Unified simulation: `simulate_master_hospital_model()` combining age structure, ward/ICU, seasonality, interventions, vaccination, demographics, and differential mortality |
-| `simulation_helpers.py` | ODE derivatives (`_master_deriv`), state packing/unpacking (`_pack_state`, `_unpack_state`), Hill gating (`hill_gate`), demographic helpers, input validation |
+| `simulation_helpers.py` | ODE derivatives (`master_deriv`), state packing/unpacking (`pack_state`, `unpack_state`), Hill gating (`hill_gate`), demographic helpers, input validation |
 | `time_varying_helpers.py` | Time-varying transmission utilities: `seasonal_forcing()`, `policy_multiplier()` |
 | `visualizations/manim_scenes.py` | Animated visualization of epidemic dynamics using Manim (see [Visualization](#visualization-manim-animations)) |
 | `tests/conftest.py` | Shared pytest fixtures: `minimal_inputs`, `high_capacity_inputs`, `demographic_inputs`, `vaccination_inputs`, etc. |
@@ -1519,11 +1519,11 @@ Unified model combining all features: ward/ICU split, age structure, seasonality
 
 ### ODE and Gating Functions (simulation_helpers.py)
 
-#### `_master_deriv(y, t, params)`
+#### `master_deriv(y, t, params)`
 
 Core ODE system computing derivatives for all 18 compartments plus 7 accumulators. Implements the complete SEIXHRD dynamics with vaccination, waning, demographics, and Hill function gating. This is an internal function called by the ODE solvers.
 
-#### `_master_deriv_solve_ivp(t, y, params)`
+#### `master_deriv_solve_ivp(t, y, params)`
 
 Wrapper for `_master_deriv` with argument order suitable for `scipy.integrate.solve_ivp`.
 

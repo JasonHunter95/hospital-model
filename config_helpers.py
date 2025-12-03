@@ -363,7 +363,7 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
     return validated
 
 
-def _apply_vaccine_profile_to_params(params: Dict[str, Any], profile_name: str) -> Dict[str, Any]:
+def apply_vaccine_profile_to_params(params: Dict[str, Any], profile_name: str) -> Dict[str, Any]:
     """
     Internal helper to apply a vaccine profile to scenario parameters.
     
@@ -455,7 +455,7 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
     
     # Apply vaccine profile if specified (three-factor model)
     if vaccine_profile is not None:
-        params = _apply_vaccine_profile_to_params(params, vaccine_profile)
+        params = apply_vaccine_profile_to_params(params, vaccine_profile)
     
     # Handle dynamic vaccination rate
     if 'vaccination_rate' in scenario:
@@ -593,7 +593,7 @@ def compare_vaccine_profiles(
     
     for profile_name in profile_names:
         params = get_scenario_params(base_scenario, validate=False)
-        params = _apply_vaccine_profile_to_params(params, profile_name)
+        params = apply_vaccine_profile_to_params(params, profile_name)
         results[profile_name] = validate_scenario_params(params, strict=False)
     
     return results

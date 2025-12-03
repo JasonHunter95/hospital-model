@@ -7,7 +7,7 @@ into the comprehensive results dictionary returned by simulate_master_hospital_m
 
 import numpy as np
 from typing import Dict, List, Any
-from simulation_helpers import _unpack_state, hill_gate
+from simulation_helpers import unpack_state, hill_gate
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 from model_types import ODEParams
 
@@ -138,13 +138,13 @@ class ResultProcessor:
             Complete results dictionary with all compartments, aggregates,
             metrics, and metadata.
         """
-        self._unpack_compartments()
-        self._compute_aggregates_and_metrics()
+        self.unpack_compartments()
+        self.compute_aggregates_and_metrics()
         if self.track_compartment_flows:
-            self._compute_flows()
-        return self._build_results_dict()
+            self.compute_flows()
+        return self.build_results_dict()
     
-    def _unpack_compartments(self):
+    def unpack_compartments(self):
         """Extract raw compartment histories from the state vector."""
         # Initialize per-age compartment histories (unvaccinated)
         S_history = [[] for _ in range(self.n_ages)]
@@ -180,7 +180,7 @@ class ResultProcessor:
         
         # Extract per-age histories from solution
         for t_idx in range(self.n_times):
-            state = _unpack_state(self.solution[t_idx], self.n_ages)
+            state = unpack_state(self.solution[t_idx], self.n_ages)
             for a in range(self.n_ages):
                 S_history[a].append(state['S'][a])
                 E_history[a].append(state['E'][a])
@@ -240,7 +240,7 @@ class ResultProcessor:
             'cum_background_deaths': cum_background_deaths_history,
         }
     
-    def _compute_aggregates_and_metrics(self):
+    def compute_aggregates_and_metrics(self):
         """Compute aggregated totals and derived metrics."""
         # Initialize aggregate histories
         H_ward_total_history = []
@@ -289,7 +289,7 @@ class ResultProcessor:
         # Iterate through solution to compute auxiliary metrics
         for t_idx in range(self.n_times):
             t = self.times[t_idx]
-            state = _unpack_state(self.solution[t_idx], self.n_ages)
+            state = unpack_state(self.solution[t_idx], self.n_ages)
             
             # Extract compartments
             S_t = state['S']
@@ -453,7 +453,7 @@ class ResultProcessor:
             'policy_mult': policy_mult_history,
         }
     
-    def _compute_flows(self):
+    def compute_flows(self):
         """Compute daily flows between compartments."""
         new_infections_history = []
         ward_admissions_history = []
@@ -463,8 +463,8 @@ class ResultProcessor:
         
         # Flow tracking from state differences
         for t_idx in range(1, self.n_times):
-            state_prev = _unpack_state(self.solution[t_idx - 1], self.n_ages)
-            state = _unpack_state(self.solution[t_idx], self.n_ages)
+            state_prev = unpack_state(self.solution[t_idx - 1], self.n_ages)
+            state = unpack_state(self.solution[t_idx], self.n_ages)
             dt_local = self.times[t_idx] - self.times[t_idx - 1]
             g_ward_prev = self.derived_metrics['g_ward'][t_idx - 1]
             g_icu_prev = self.derived_metrics['g_icu'][t_idx - 1]
@@ -505,7 +505,7 @@ class ResultProcessor:
             'breakthrough_infections_daily': breakthrough_infections_daily_history,
         }
     
-    def _build_results_dict(self) -> Dict[str, Any]:
+    def build_results_dict(self) -> Dict[str, Any]:
         """Build the final results dictionary."""
         results = {
             # Time

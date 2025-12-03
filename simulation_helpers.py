@@ -179,7 +179,7 @@ def validate_demographic_params(demographic_params, n_ages):
     return validated
 
 
-def _validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage):
+def validate_age_structured_inputs(age_params, contact_matrix, age_pops, coverage):
     """Basic shape validation to catch common configuration mistakes early."""
     n_ages = len(age_pops)
     if len(age_params) != n_ages:
@@ -190,7 +190,7 @@ def _validate_age_structured_inputs(age_params, contact_matrix, age_pops, covera
         raise ValueError(f"coverage length ({len(coverage)}) must match age_pops ({n_ages}).")
 
 
-def _coerce_initial_vector(initial_conditions, key, n_ages, fallback):
+def coerce_initial_vector(initial_conditions, key, n_ages, fallback):
     """Return an initial-condition vector of length n_ages."""
     values = initial_conditions.get(key, fallback)
     # ensure list copy to avoid side effects
@@ -231,6 +231,13 @@ def hill_gate(occupancy, capacity, hill_coef):
     - When H >> K: g → 0 (admissions severely limited)
     
     Uses log-domain computation for large hill_coef values to prevent overflow.
+
+    Mathematical Mapping
+    --------------------
+    - occupancy -> H
+    - capacity -> K
+    - hill_coef -> n
+    - Formula: g(H) = 1 / (1 + (H/K)^n)
     """
     # Input validation
     if occupancy < 0:
@@ -264,7 +271,7 @@ def hill_gate(occupancy, capacity, hill_coef):
     
     return 1.0 / (1.0 + power)
 
-def _hill_gate_vectorized(occupancy, capacity, hill_coef):
+def hill_gate_vectorized(occupancy, capacity, hill_coef):
     """
     Vectorized Hill function gating with numerical stability.
     
@@ -333,7 +340,7 @@ TRACKED_ORDER = ['D_treated', 'D_untreated', 'D_vax_treated', 'D_vax_untreated',
 NUM_TRACKED = len(TRACKED_ORDER)  # 7
 
 
-def _pack_state(compartments, n_ages):
+def pack_state(compartments, n_ages):
     """
     Pack compartment dictionaries into a flat 1D numpy array for ODE solvers.
     
@@ -372,7 +379,7 @@ def _pack_state(compartments, n_ages):
     return y
 
 
-def _unpack_state(y, n_ages):
+def unpack_state(y, n_ages):
     """
     Unpack flat state vector into compartment dictionary.
     
@@ -411,7 +418,7 @@ def _unpack_state(y, n_ages):
 # DERIVATIVE FUNCTION FOR ODE SOLVERS
 # ============================================================================
 
-def _compute_force_of_infection(state: Dict[str, np.ndarray], params: ODEParams, beta_t: float, theta_X: float, theta_H: float, theta_vax: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+def compute_force_of_infection(state: Dict[str, np.ndarray], params: ODEParams, beta_t: float, theta_X: float, theta_H: float, theta_vax: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """
     Calculate the force of infection for both unvaccinated and vaccinated populations.
     
@@ -438,6 +445,18 @@ def _compute_force_of_infection(state: Dict[str, np.ndarray], params: ODEParams,
         - lambda_foi_vax: force of infection for vaccinated (reduced by VE_infection)
         - live_pop: live population per age group
         - total_live_pop: total live population
+
+    Mathematical Mapping
+    --------------------
+    - beta_t -> beta(t) (Transmission rate)
+    - contact_matrix -> C_{ba} (Contact matrix, note transpose usage)
+    - I -> I (Infected)
+    - X_queued, X_admitted -> X_{queued}, X_{admitted}
+    - H_ward, H_icu -> H_{ward}, H_{icu}
+    - theta_X -> theta_X (Severe infectiousness)
+    - theta_H -> theta_H (Hospital infectiousness)
+    - theta_vax -> theta_{vax} (Vaccinated infectiousness)
+    - VE_infection -> VE_I (Vaccine efficacy against infection)
     """
     n_ages = params['n_ages']
     contact_matrix = params['contact_matrix']
@@ -497,7 +516,7 @@ def _compute_force_of_infection(state: Dict[str, np.ndarray], params: ODEParams,
     return lambda_foi, lambda_foi_vax, live_pop, total_live_pop
 
 
-def _compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi: np.ndarray, g_ward: float, g_icu: float, 
+def compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi: np.ndarray, g_ward: float, g_icu: float, 
                                 births_to_S: np.ndarray, waning_flow_vax: np.ndarray, bg_deaths_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     """
     Calculate derivatives for unvaccinated compartments.
@@ -525,6 +544,26 @@ def _compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, 
     -------
     dict
         Dictionary containing unvaccinated compartment derivatives and death flows.
+
+    Mathematical Mapping
+    --------------------
+    - lambda_foi -> lambda (Force of infection)
+    - alpha -> alpha (E -> I progression)
+    - sigma -> sigma (I -> X progression)
+    - gamma_I -> gamma_I (Recovery from I)
+    - mu_I -> mu_I (Mortality in I)
+    - eta -> eta (Ward admission attempt rate)
+    - gamma_X -> gamma_X (Recovery from X)
+    - mu_X_untreated -> mu_{X,untreated}
+    - mu_X -> mu_X (Treated mortality)
+    - gamma_X_admit -> gamma_{X,admit} (X -> Ward transfer)
+    - gamma_ward -> gamma_{ward}
+    - mu_ward -> mu_{ward}
+    - eta_icu -> eta_{icu} (ICU admission attempt)
+    - gamma_icu -> gamma_{icu}
+    - mu_icu -> mu_{icu}
+    - omega -> omega (Waning immunity)
+    - vaccination_rate -> v
     """
     n_ages = params['n_ages']
     age_params = params['age_params']
@@ -641,7 +680,7 @@ def _compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, 
     }
 
 
-def _compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi_vax: np.ndarray, g_ward: float, g_icu: float,
+def compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lambda_foi_vax: np.ndarray, g_ward: float, g_icu: float,
                               births_to_S_vax: np.ndarray, new_vaccinations: np.ndarray, waning_flow_vax: np.ndarray, bg_deaths_dict: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
     """
     Calculate derivatives for vaccinated compartments.
@@ -671,6 +710,26 @@ def _compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, la
     -------
     dict
         Dictionary containing vaccinated compartment derivatives and death flows.
+
+    Mathematical Mapping
+    --------------------
+    - lambda_foi_vax -> lambda_{vax} (Force of infection for vaccinated)
+    - alpha -> alpha (E -> I progression)
+    - sigma -> sigma (I -> X progression)
+    - gamma_I -> gamma_I (Recovery from I)
+    - mu_I -> mu_I (Mortality in I)
+    - eta -> eta (Ward admission attempt rate)
+    - gamma_X -> gamma_X (Recovery from X)
+    - mu_X_untreated -> mu_{X,untreated}
+    - mu_X -> mu_X (Treated mortality)
+    - gamma_X_admit -> gamma_{X,admit} (X -> Ward transfer)
+    - gamma_ward -> gamma_{ward}
+    - mu_ward -> mu_{ward}
+    - eta_icu -> eta_{icu} (ICU admission attempt)
+    - gamma_icu -> gamma_{icu}
+    - mu_icu -> mu_{icu}
+    - omega -> omega (Waning immunity)
+    - vaccination_rate -> v
     """
     n_ages = params['n_ages']
     age_params = params['age_params']
@@ -794,7 +853,7 @@ def _compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, la
     }
 
 
-def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
+def master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     """
     Compute derivatives for the master SEIXHRD model with vaccination and demographics.
     
@@ -834,7 +893,7 @@ def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     n_ages = params['n_ages']
     
     # Unpack state
-    state = _unpack_state(y, n_ages)
+    state = unpack_state(y, n_ages)
     
     # Extract parameters
     beta_base = params['beta_base']
@@ -877,13 +936,13 @@ def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     H_ward_total = (np.sum(state['H_ward']) + np.sum(state['H_ward_vax']) +
                     np.sum(state['X_admitted']) + np.sum(state['X_admitted_vax']))
     H_icu_total = np.sum(state['H_icu']) + np.sum(state['H_icu_vax'])
-    g_ward = _hill_gate_vectorized(H_ward_total, K_ward, n_ward)
-    g_icu = _hill_gate_vectorized(H_icu_total, K_icu, n_icu)
+    g_ward = hill_gate_vectorized(H_ward_total, K_ward, n_ward)
+    g_icu = hill_gate_vectorized(H_icu_total, K_icu, n_icu)
     
     # ========================================
     # Force of Infection
     # ========================================
-    lambda_foi, lambda_foi_vax, live_pop, total_live_pop = _compute_force_of_infection(
+    lambda_foi, lambda_foi_vax, live_pop, total_live_pop = compute_force_of_infection(
         state, params, beta_t, theta_X, theta_H, theta_vax
     )
     
@@ -915,12 +974,12 @@ def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     # ========================================
     # Compute Derivatives Using Helper Functions
     # ========================================
-    unvax_results = _compute_unvax_derivatives(
+    unvax_results = compute_unvax_derivatives(
         state, params, lambda_foi, g_ward, g_icu, 
         births_to_S, waning_flow_vax, bg_deaths_dict
     )
     
-    vax_results = _compute_vax_derivatives(
+    vax_results = compute_vax_derivatives(
         state, params, lambda_foi_vax, g_ward, g_icu,
         births_to_S_vax, new_vaccinations, waning_flow_vax, bg_deaths_dict
     )
@@ -963,11 +1022,11 @@ def _master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
         'cum_background_deaths': d_cum_background_deaths
     }
     
-    return _pack_state(derivs, n_ages)
+    return pack_state(derivs, n_ages)
 
 
-def _master_deriv_solve_ivp(t, y, params):
+def master_deriv_solve_ivp(t, y, params):
     """
-    Wrapper for _master_deriv with solve_ivp argument order (t, y).
+    Wrapper for master_deriv with solve_ivp argument order (t, y).
     """
-    return _master_deriv(y, t, params)
+    return master_deriv(y, t, params)
