@@ -139,7 +139,9 @@ class TestDemographicIntegration:
     
     def test_closed_population_without_demographics(self, minimal_inputs):
         """Test that population is conserved without demographic params."""
-        results = simulate_master_hospital_model(**minimal_inputs, Tmax=100)
+        inputs = minimal_inputs.copy()
+        inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 100}
+        results = simulate_master_hospital_model(**inputs)
         
         # Sum all compartments at start and end
         n_ages = 3
@@ -398,10 +400,12 @@ class TestDemographicEdgeCases:
             'neonatal_vaccination_rate': 0.0,
         }
         
+        inputs = minimal_inputs.copy()
+        inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
+        
         results = simulate_master_hospital_model(
-            **minimal_inputs,
-            demographic_params=high_birth_params,
-            Tmax=50,
+            **inputs,
+            demographic_config=high_birth_params,
         )
         
         # Population should grow significantly
@@ -418,10 +422,12 @@ class TestDemographicEdgeCases:
             'neonatal_vaccination_rate': 0.0,
         }
         
+        inputs = minimal_inputs.copy()
+        inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
+        
         results = simulate_master_hospital_model(
-            **minimal_inputs,
-            demographic_params=high_mort_params,
-            Tmax=50,
+            **inputs,
+            demographic_config=high_mort_params,
         )
         
         # Population should decline significantly
@@ -438,13 +444,18 @@ class TestDemographicEdgeCases:
             'neonatal_vaccination_rate': 1.0,  # 100%
         }
         
+        inputs = minimal_inputs.copy()
+        inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 100}
+        inputs['vaccine_config'] = {
+            **inputs.get('vaccine_config', {}),
+            'VE_infection': 0.9,
+            'VE_severe': 0.95,
+            'VE_death': 0.99
+        }
+        
         results = simulate_master_hospital_model(
-            **minimal_inputs,
-            demographic_params=full_neonatal_params,
-            VE_infection=0.9,
-            VE_severe=0.95,
-            VE_death=0.99,
-            Tmax=100,
+            **inputs,
+            demographic_config=full_neonatal_params,
         )
         
         # All births should go to S_vax
@@ -466,10 +477,10 @@ class TestDemographicEdgeCases:
         }
         
         # Should not crash
+        inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
         results = simulate_master_hospital_model(
             **inputs,
-            demographic_params=demo_params,
-            Tmax=50,
+            demographic_config=demo_params,
         )
         
         assert 'live_population' in results
@@ -484,15 +495,31 @@ class TestDemographicParametersInResults:
         
         assert 'parameters' in results
         assert 'demographic_params' in results['parameters']
-        assert results['parameters']['demographic_params'] == demographic_inputs['demographic_params']
+        
+        # Compare dictionaries with numpy arrays
+        result_demo = results['parameters']['demographic_params']
+        input_demo = demographic_inputs['demographic_config']
+        
+        assert result_demo.keys() == input_demo.keys()
+        for key in result_demo.keys():
+            if isinstance(result_demo[key], np.ndarray):
+                np.testing.assert_array_equal(result_demo[key], input_demo[key])
+            else:
+                assert result_demo[key] == input_demo[key]
     
     def test_none_demographic_params_in_parameters(self, minimal_inputs):
-        """Test that None demographic_params is stored correctly."""
+        """Test that None demographic_params results in validated defaults being stored."""
         results = simulate_master_hospital_model(**minimal_inputs)
         
         assert 'parameters' in results
         assert 'demographic_params' in results['parameters']
-        assert results['parameters']['demographic_params'] is None
+        
+        # When no demographic_params are provided, validated defaults should be stored
+        demo_params = results['parameters']['demographic_params']
+        assert demo_params is not None
+        assert demo_params['birth_rate'] == 0.0
+        assert np.all(demo_params['mu_background'] == 0.0)
+        assert demo_params['neonatal_vaccination_rate'] == 0.0
 
 
 class TestEquilibriumDemographics:

@@ -29,8 +29,8 @@ class TestSeasonalForcing:
         """Without seasonality, beta_t should be constant."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.0, 'period': 365, 'peak_day': 0},
-            'Tmax': 100,
+            'seasonal_config': {'amplitude': 0.0, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -42,8 +42,8 @@ class TestSeasonalForcing:
         """With seasonality, beta_t should vary over time."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
-            'Tmax': 365,
+            'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -55,8 +55,8 @@ class TestSeasonalForcing:
         """Transmission should peak at peak_day."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
-            'Tmax': 365,
+            'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -67,9 +67,8 @@ class TestSeasonalForcing:
         """Transmission should be minimum at half period after peak."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
-            'Tmax': 365,
-            'time_step': 0.5,
+            'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365, 'time_step': 0.5},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -84,9 +83,8 @@ class TestSeasonalForcing:
         """peak_day should shift when peak occurs."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.3, 'period': 365, 'peak_day': 100},
-            'Tmax': 365,
-            'time_step': 0.5,
+            'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 100},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365, 'time_step': 0.5},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -100,13 +98,13 @@ class TestSeasonalForcing:
         """Higher amplitude should produce larger variation."""
         inputs_low = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.1, 'period': 365, 'peak_day': 0},
-            'Tmax': 365,
+            'seasonal_config': {'amplitude': 0.1, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         inputs_high = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.5, 'period': 365, 'peak_day': 0},
-            'Tmax': 365,
+            'seasonal_config': {'amplitude': 0.5, 'period': 365, 'peak_day': 0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         
         results_low = simulate_master_hospital_model(**inputs_low)
@@ -127,7 +125,7 @@ class TestPolicyInterventions:
     
     def test_no_interventions_policy_mult_one(self, minimal_inputs):
         """Without interventions, policy_mult should be 1.0."""
-        inputs = {**minimal_inputs, 'interventions': [], 'Tmax': 100}
+        inputs = {**minimal_inputs, 'intervention_config': [], 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}}
         results = simulate_master_hospital_model(**inputs)
         
         for pm in results['policy_mult']:
@@ -166,13 +164,13 @@ class TestPolicyInterventions:
     
     def test_intervention_reduces_infections(self, minimal_inputs):
         """Intervention should reduce total infections."""
-        inputs_no_int = {**minimal_inputs, 'interventions': [], 'Tmax': 150}
+        inputs_no_int = {**minimal_inputs, 'intervention_config': [], 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}}
         inputs_with_int = {
             **minimal_inputs,
-            'interventions': [
+            'intervention_config': [
                 {'start_day': 20, 'end_day': 80, 'transmission_reduction': 0.5}
             ],
-            'Tmax': 150,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150},
         }
         
         results_no_int = simulate_master_hospital_model(**inputs_no_int)
@@ -185,11 +183,11 @@ class TestPolicyInterventions:
         """Multiple interventions should work correctly."""
         inputs = {
             **minimal_inputs,
-            'interventions': [
+            'intervention_config': [
                 {'start_day': 20, 'end_day': 40, 'transmission_reduction': 0.3},
                 {'start_day': 60, 'end_day': 80, 'transmission_reduction': 0.6},
             ],
-            'Tmax': 100,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -214,11 +212,11 @@ class TestPolicyInterventions:
         """Overlapping interventions should apply strongest reduction."""
         inputs = {
             **minimal_inputs,
-            'interventions': [
+            'intervention_config': [
                 {'start_day': 20, 'end_day': 60, 'transmission_reduction': 0.3},
                 {'start_day': 40, 'end_day': 80, 'transmission_reduction': 0.5},
             ],
-            'Tmax': 100,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -241,8 +239,8 @@ class TestWaningImmunity:
         """Without waning, R should approach stable value."""
         inputs = {
             **minimal_inputs,
-            'waning_params': None,  # No waning
-            'Tmax': 300,
+            'waning_config': None,  # No waning
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -255,8 +253,8 @@ class TestWaningImmunity:
         """With waning, R should decrease after initial peak."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {'omega': 0.02},  # Fast waning (~50 day immunity)
-            'Tmax': 300,
+            'waning_config': {'omega': 0.02},  # Fast waning (~50 day immunity)
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -272,8 +270,8 @@ class TestWaningImmunity:
         """With waning, S should partially recover after initial decline."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {'omega': 0.02},
-            'Tmax': 400,
+            'waning_config': {'omega': 0.02},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 400},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -291,12 +289,12 @@ class TestWaningImmunity:
         """Age-specific waning rates should work."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {
+            'waning_config': {
                 'omega_young': 0.005,
                 'omega_middle': 0.01,
                 'omega_elderly': 0.02,
             },
-            'Tmax': 300,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -307,8 +305,8 @@ class TestWaningImmunity:
         """Uniform 'omega' should be applied to all age groups."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {'omega': 0.01},
-            'Tmax': 200,
+            'waning_config': {'omega': 0.01},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200},
         }
         results = simulate_master_hospital_model(**inputs)
         assert len(results['times']) > 0
@@ -325,11 +323,11 @@ class TestCombinedTimeVarying:
         """Seasonality and intervention should combine multiplicatively."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.2, 'period': 365, 'peak_day': 0},
-            'interventions': [
+            'seasonal_config': {'amplitude': 0.2, 'period': 365, 'peak_day': 0},
+            'intervention_config': [
                 {'start_day': 30, 'end_day': 60, 'transmission_reduction': 0.5}
             ],
-            'Tmax': 100,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -348,12 +346,12 @@ class TestCombinedTimeVarying:
         """All time-varying effects should work together."""
         inputs = {
             **minimal_inputs,
-            'seasonal_params': {'amplitude': 0.2, 'period': 365, 'peak_day': 0},
-            'waning_params': {'omega': 0.01},
-            'interventions': [
+            'seasonal_config': {'amplitude': 0.2, 'period': 365, 'peak_day': 0},
+            'waning_config': {'omega': 0.01},
+            'intervention_config': [
                 {'start_day': 50, 'end_day': 100, 'transmission_reduction': 0.4}
             ],
-            'Tmax': 365,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -367,13 +365,12 @@ class TestCombinedTimeVarying:
         VE = 0.6
         inputs = {
             **minimal_inputs,
-            'coverage': coverage,
-            'VE': VE,
-            'seasonal_params': {'amplitude': 0.0, 'period': 365, 'peak_day': 0},  # No seasonality
-            'interventions': [
+            'vaccine_config': {'coverage': coverage, 'VE_infection': VE, 'VE_severe': VE, 'VE_death': VE},
+            'seasonal_config': {'amplitude': 0.0, 'period': 365, 'peak_day': 0},  # No seasonality
+            'intervention_config': [
                 {'start_day': 0, 'end_day': 200, 'transmission_reduction': 0.3}
             ],
-            'Tmax': 50,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -396,9 +393,8 @@ class TestLongTermDynamics:
         """With waning, system should approach endemic equilibrium."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {'omega': 0.005},
-            'Tmax': 1000,
-            'time_step': 0.5,
+            'waning_config': {'omega': 0.005},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 1000, 'time_step': 0.5},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -414,10 +410,9 @@ class TestLongTermDynamics:
         """With waning and seasonality, should see recurring waves."""
         inputs = {
             **minimal_inputs,
-            'waning_params': {'omega': 0.01},
-            'seasonal_params': {'amplitude': 0.3, 'period': 365, 'peak_day': 180},
-            'Tmax': 730,  # 2 years
-            'time_step': 0.5,
+            'waning_config': {'omega': 0.01},
+            'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 180},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 730, 'time_step': 0.5},  # 2 years
         }
         results = simulate_master_hospital_model(**inputs)
         

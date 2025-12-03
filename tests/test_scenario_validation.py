@@ -108,7 +108,7 @@ class TestScenarioPopulationConservation:
         D_total = results.get('D_total', np.zeros(len(times)))[-1]
         
         # Check if demographics are enabled
-        has_demographics = params.get('demographic_params') is not None
+        has_demographics = params.get('demographic_config') is not None
         
         if has_demographics:
             cum_births = results.get('cum_births_total', np.zeros(len(times)))[-1]
@@ -168,7 +168,7 @@ class TestScenarioPopulationConservation:
             # Add deaths
             D_total = results['D_total'][t_idx] if 'D_total' in results else 0
             
-            has_demographics = params.get('demographic_params') is not None
+            has_demographics = params.get('demographic_config') is not None
             
             if has_demographics:
                 cum_births = results.get('cum_births_total', np.zeros(len(times)))[t_idx]

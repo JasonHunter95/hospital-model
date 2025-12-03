@@ -36,7 +36,10 @@ def minimal_inputs():
         'age_params': AGE_PARAMS_DEFAULT,
         'contact_matrix': CONTACT_MATRIX_DEFAULT,
         'age_pops': [3000, 5000, 2000],
+        'sim_config': DEFAULT_SIM_PARAMS,
+        'capacity_config': DEFAULT_CAPACITY_PARAMS,
     }
+
 
 
 @pytest.fixture
@@ -71,8 +74,12 @@ def high_capacity_inputs(minimal_inputs):
     """Inputs with very high capacity (no overflow)."""
     return {
         **minimal_inputs,
-        'ward_capacity': 10000,
-        'icu_capacity': 5000,
+        'capacity_config': {
+            'ward_capacity': 10000,
+            'icu_capacity': 5000,
+            'hill_coef_ward': DEFAULT_CAPACITY_PARAMS['hill_coef_ward'],
+            'hill_coef_icu': DEFAULT_CAPACITY_PARAMS['hill_coef_icu'],
+        },
     }
 
 
@@ -81,8 +88,12 @@ def low_capacity_inputs(minimal_inputs):
     """Inputs with very low capacity (maximum constraint)."""
     return {
         **minimal_inputs,
-        'ward_capacity': 5,
-        'icu_capacity': 2,
+        'capacity_config': {
+            'ward_capacity': 5,
+            'icu_capacity': 2,
+            'hill_coef_ward': DEFAULT_CAPACITY_PARAMS['hill_coef_ward'],
+            'hill_coef_icu': DEFAULT_CAPACITY_PARAMS['hill_coef_icu'],
+        },
     }
 
 
@@ -91,8 +102,12 @@ def zero_capacity_inputs(minimal_inputs):
     """Inputs with zero capacity (all admissions denied)."""
     return {
         **minimal_inputs,
-        'ward_capacity': 0,
-        'icu_capacity': 0,
+        'capacity_config': {
+            'ward_capacity': 0,
+            'icu_capacity': 0,
+            'hill_coef_ward': DEFAULT_CAPACITY_PARAMS['hill_coef_ward'],
+            'hill_coef_icu': DEFAULT_CAPACITY_PARAMS['hill_coef_icu'],
+        },
     }
 
 
@@ -105,12 +120,15 @@ def seasonal_inputs(minimal_inputs):
     """Inputs with seasonal forcing enabled."""
     return {
         **minimal_inputs,
-        'seasonal_params': {
+        'seasonal_config': {
             'amplitude': 0.3,
             'period': 365,
             'peak_day': 0,
         },
-        'Tmax': 365,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,
+        },
     }
 
 
@@ -119,14 +137,17 @@ def intervention_inputs(minimal_inputs):
     """Inputs with a single intervention period."""
     return {
         **minimal_inputs,
-        'interventions': [
+        'intervention_config': [
             {
                 'start_day': 30,
                 'end_day': 60,
                 'transmission_reduction': 0.5,
             }
         ],
-        'Tmax': 100,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 100,
+        },
     }
 
 
@@ -135,10 +156,13 @@ def waning_inputs(minimal_inputs):
     """Inputs with waning immunity enabled."""
     return {
         **minimal_inputs,
-        'waning_params': {
+        'waning_config': {
             'omega': 0.01,  # ~100 day immunity duration
         },
-        'Tmax': 365,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,
+        },
     }
 
 
@@ -151,8 +175,12 @@ def full_vaccination_inputs(minimal_inputs):
     """Inputs with 100% vaccine coverage and efficacy."""
     return {
         **minimal_inputs,
-        'coverage': 1.0,
-        'VE': 1.0,
+        'vaccine_config': {
+            'coverage': 1.0,
+            'VE_infection': 1.0,
+            'VE_severe': 1.0,
+            'VE_death': 1.0,
+        },
     }
 
 
@@ -161,8 +189,12 @@ def partial_vaccination_inputs(minimal_inputs):
     """Inputs with age-specific vaccination coverage."""
     return {
         **minimal_inputs,
-        'coverage': [0.2, 0.4, 0.8],  # elderly priority
-        'VE': 0.7,
+        'vaccine_config': {
+            'coverage': [0.2, 0.4, 0.8],  # elderly priority
+            'VE_infection': 0.7,
+            'VE_severe': 0.7,
+            'VE_death': 0.7,
+        },
     }
 
 
@@ -187,8 +219,11 @@ def short_simulation_inputs(minimal_inputs):
     """Inputs for a very short simulation."""
     return {
         **minimal_inputs,
-        'Tmax': 10,
-        'time_step': 0.1,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 10,
+            'time_step': 0.1,
+        },
     }
 
 
@@ -197,9 +232,12 @@ def long_simulation_inputs(minimal_inputs):
     """Inputs for a long simulation with waning immunity."""
     return {
         **minimal_inputs,
-        'Tmax': 730,  # 2 years
-        'time_step': 0.5,  # larger step for speed
-        'waning_params': {'omega': 0.005},
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 730,  # 2 years
+            'time_step': 0.5,  # larger step for speed
+        },
+        'waning_config': {'omega': 0.005},
     }
 
 
@@ -239,8 +277,11 @@ def demographic_inputs(minimal_inputs):
     """Inputs with demographic parameters (births and background deaths)."""
     return {
         **minimal_inputs,
-        'demographic_params': DEMOGRAPHIC_PARAMS_DEFAULT,
-        'Tmax': 365,  # 1 year for meaningful demographic effects
+        'demographic_config': DEMOGRAPHIC_PARAMS_DEFAULT,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,  # 1 year for meaningful demographic effects
+        },
     }
 
 
@@ -249,8 +290,11 @@ def demographic_equilibrium_inputs(minimal_inputs):
     """Inputs with balanced demographic parameters for stable population."""
     return {
         **minimal_inputs,
-        'demographic_params': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
-        'Tmax': 730,  # 2 years
+        'demographic_config': DEMOGRAPHIC_PARAMS_EQUILIBRIUM,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 730,  # 2 years
+        },
     }
 
 
@@ -259,11 +303,16 @@ def neonatal_vaccination_inputs(minimal_inputs):
     """Inputs with neonatal vaccination enabled."""
     return {
         **minimal_inputs,
-        'demographic_params': DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
-        'VE_infection': 0.8,
-        'VE_severe': 0.9,
-        'VE_death': 0.95,
-        'Tmax': 365,
+        'demographic_config': DEMOGRAPHIC_PARAMS_NEONATAL_VAX,
+        'vaccine_config': {
+            'VE_infection': 0.8,
+            'VE_severe': 0.9,
+            'VE_death': 0.95,
+        },
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,
+        },
     }
 
 
@@ -272,13 +321,16 @@ def high_birth_rate_inputs(minimal_inputs):
     """Inputs with high birth rate for testing population growth."""
     return {
         **minimal_inputs,
-        'demographic_params': {
+        'demographic_config': {
             'birth_rate': 0.0001,  # ~36.5/1000/year (high)
             'birth_age_distribution': [1.0, 0.0, 0.0],
             'mu_background': [0.0, 0.0, 0.0],  # No background deaths
             'neonatal_vaccination_rate': 0.0,
         },
-        'Tmax': 365,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,
+        },
     }
 
 
@@ -287,13 +339,16 @@ def high_mortality_inputs(minimal_inputs):
     """Inputs with high background mortality for testing population decline."""
     return {
         **minimal_inputs,
-        'demographic_params': {
+        'demographic_config': {
             'birth_rate': 0.0,  # No births
             'birth_age_distribution': [1.0, 0.0, 0.0],
             'mu_background': [0.0001, 0.0001, 0.0001],  # Uniform high mortality
             'neonatal_vaccination_rate': 0.0,
         },
-        'Tmax': 365,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 365,
+        },
     }
 
 
@@ -302,11 +357,14 @@ def zero_demographic_inputs(minimal_inputs):
     """Inputs with zero demographic rates (closed population via explicit params)."""
     return {
         **minimal_inputs,
-        'demographic_params': {
+        'demographic_config': {
             'birth_rate': 0.0,
             'birth_age_distribution': [1.0, 0.0, 0.0],
             'mu_background': [0.0, 0.0, 0.0],
             'neonatal_vaccination_rate': 0.0,
         },
-        'Tmax': 200,
+        'sim_config': {
+            **minimal_inputs['sim_config'],
+            'Tmax': 200,
+        },
     }

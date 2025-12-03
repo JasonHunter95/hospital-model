@@ -270,7 +270,7 @@ class TestOutputStructure:
         
         This ensures the simulation runs for the full requested duration.
         """
-        inputs = {**minimal_inputs, 'Tmax': 100, 'time_step': 0.1}
+        inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100, 'time_step': 0.1}}
         results = simulate_master_hospital_model(**inputs)
         # Allow small floating point tolerance
         assert results['times'][-1] >= 100 - 0.1
@@ -536,7 +536,7 @@ class TestDefaultParameters:
     
     def test_custom_tmax_used(self, minimal_inputs):
         """Custom Tmax should be used when provided."""
-        inputs = {**minimal_inputs, 'Tmax': 50}
+        inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
         results = simulate_master_hospital_model(**inputs)
         # Allow small floating point tolerance
         assert results['times'][-1] >= 50 - 0.2
@@ -544,7 +544,7 @@ class TestDefaultParameters:
     
     def test_custom_capacity_used(self, minimal_inputs):
         """Custom capacities should be used when provided."""
-        inputs = {**minimal_inputs, 'ward_capacity': 150, 'icu_capacity': 40}
+        inputs = {**minimal_inputs, 'capacity_config': {'ward_capacity': 150, 'icu_capacity': 40, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
         results = simulate_master_hospital_model(**inputs)
         assert results['ward_capacity'] == 150
         assert results['icu_capacity'] == 40
@@ -618,8 +618,7 @@ class TestForceOfInfectionDirectionality:
             age_params=age_params,
             contact_matrix=contact_matrix,
             age_pops=age_pops,
-            Tmax=60,
-            time_step=0.1,
+            sim_config={'Tmax': 60, 'time_step': 0.1},
             initial_conditions=initial_conditions,
         )
         
@@ -733,16 +732,154 @@ class TestParametersMetadata:
         """Parameters dict should contain input values."""
         inputs = {
             **minimal_inputs,
-            'Tmax': 150,
-            'coverage': 0.5,
-            'VE': 0.8,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150},
+            'vaccine_config': {'coverage': 0.5, 'VE_infection': 0.8, 'VE_severe': 0.8, 'VE_death': 0.8},
         }
         results = simulate_master_hospital_model(**inputs)
         
         assert results['parameters']['Tmax'] == 150
-        assert results['parameters']['VE'] == 0.8
+        # VE is stored separately as VE_infection, VE_severe, VE_death
+        assert results['parameters']['VE_infection'] == 0.8
     
     def test_parameters_contains_age_params(self, minimal_inputs):
         """Parameters dict should contain age_params."""
         results = simulate_master_hospital_model(**minimal_inputs)
         assert 'age_params' in results['parameters']
+
+# ========================================
+# Kitchen Sink Integration Test
+# ========================================
+
+class TestKitchenSink:
+    """
+    Comprehensive integration test enabling all model features simultaneously.
+    
+    This 'Kitchen Sink' test verifies that all components work together without
+    crashing or producing obviously invalid results. It enables:
+    - Age structure (3 groups)
+    - 3-Factor Vaccination (infection, severe, death efficacy)
+    - Vaccine Waning (waning immunity back to S)
+    - Seasonality (sinusoidal transmission)
+    - Interventions (policy-driven transmission reduction)
+    - Capacity Constraints (ward and ICU limits with Hill gating)
+    - Differential Mortality (tracking treated vs untreated deaths)
+    - Demographics (births and background deaths)
+    """
+    
+    def test_kitchen_sink_simulation(self, minimal_inputs):
+        """Run simulation with ALL features enabled."""
+        
+        # 1. Setup complex configuration
+        
+        # Seasonality
+        seasonal_config = {
+            'amplitude': 0.2,
+            'period': 365.0,
+            'peak_day': 30.0,
+            'description': 'Test Seasonality'
+        }
+        
+        # Interventions
+        intervention_config = [
+            {'start_day': 20, 'end_day': 50, 'transmission_reduction': 0.4},
+            {'start_day': 80, 'end_day': 100, 'transmission_reduction': 0.2}
+        ]
+        
+        # Vaccination (3-factor)
+        vaccine_config = {
+            'vaccination_rate': [0.001, 0.002, 0.005], # Age-specific rates
+            'VE_infection': 0.7,
+            'VE_severe': 0.8,
+            'VE_death': 0.9,
+            'theta_vax': 0.4
+        }
+        
+        # Waning Immunity (Vaccine)
+        vaccine_waning_config = {
+            'omega_vax': 0.005,
+            'wane_to_S': True
+        }
+        
+        # Waning Immunity (Natural)
+        waning_config = {
+            'omega': 0.002,
+            'waning_destination': 'S' # Explicitly state destination
+        }
+        
+        # Demographics
+        demographic_config = {
+            'birth_rate': 0.0001,
+            'birth_age_distribution': [1.0, 0.0, 0.0],
+            'mu_background': [0.00001, 0.00005, 0.0002],
+            'neonatal_vaccination_rate': 0.5
+        }
+        
+        # Capacity (Tight constraints to force overflow)
+        capacity_config = {
+            'ward_capacity': 50,
+            'icu_capacity': 10,
+            'hill_coef_ward': 4,
+            'hill_coef_icu': 4
+        }
+        
+        # Initial Conditions (Start with some infections)
+        initial_conditions = {
+            'I_by_age': [10, 10, 10],
+            'S_vax_by_age': [100, 100, 100] # Some initial vaccinated
+        }
+        
+        # 2. Run Simulation
+        results = simulate_master_hospital_model(
+            beta_base=0.5, # High transmission to force dynamics
+            age_params=minimal_inputs['age_params'],
+            contact_matrix=minimal_inputs['contact_matrix'],
+            age_pops=minimal_inputs['age_pops'],
+            sim_config={'Tmax': 200, 'time_step': 0.1},
+            capacity_config=capacity_config,
+            vaccine_config=vaccine_config,
+            vaccine_waning_config=vaccine_waning_config,
+            demographic_config=demographic_config,
+            seasonal_config=seasonal_config,
+            waning_config=waning_config,
+            intervention_config=intervention_config,
+            initial_conditions=initial_conditions,
+            track_differential_mortality=True,
+            track_compartment_flows=True
+        )
+        
+        # 3. Verify Results Structure and Basic Invariants
+        
+        # Check existence of key outputs
+        assert 'times' in results
+        assert 'S' in results
+        assert 'D_treated' in results
+        assert 'new_infections' in results # Flow tracking
+        
+        # Check Metadata
+        assert results['parameters']['VE_infection'] == 0.7
+        assert results['parameters']['VE_severe'] == 0.8
+        assert results['parameters']['VE_death'] == 0.9
+        
+        # Check Population Conservation (approximate due to births/deaths)
+        # Note: With demographics, population is NOT constant, but should be continuous
+        # We check that it doesn't jump discontinuously or become negative
+        total_pop_series = results['live_population']
+        assert np.all(np.array(total_pop_series) > 0)
+        
+        # Check Non-negativity of all compartments
+        for key in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
+            for age_series in results[key]:
+                assert np.all(np.array(age_series) >= -1e-9)
+        
+        # Check that interventions had an effect (beta_t should vary)
+        beta_t = results['beta_t']
+        assert np.std(beta_t) > 0, "beta_t should vary with seasonality and interventions"
+        assert np.min(beta_t) < 0.5, "Interventions should reduce beta below base"
+        
+        # Check that overflow occurred (due to tight capacity)
+        # Note: Depending on dynamics, might not overflow, but we check the metric exists
+        assert 'ward_overflow' in results
+        assert 'icu_overflow' in results
+        
+        # Check that deaths occurred
+        assert results['D_total'][-1] > 0

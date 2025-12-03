@@ -11,6 +11,12 @@ from config import HEALTHCARE_SYSTEM_SMALL, SCENARIO_REGISTRY, VACCINATION_STRAT
     HEALTHCARE_SYSTEM_RESOURCE_LIMITED, HEALTHCARE_SYSTEM_SURGE_MILD, \
     HEALTHCARE_SYSTEM_SURGE_MAJOR, VACCINE_PROFILES, DEFAULT_SIM_PARAMS
 
+from model_types import (
+    ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 
+    VaccineWaningParams, DemographicParams, SeasonalParams, 
+    Intervention
+)
+
 # ============================================================================
 # HELPER FUNCTIONS FOR CONFIGURATION AND SCENARIO MANAGEMENT
 # ============================================================================
@@ -221,7 +227,7 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
     Validate parameters for simulate_master_hospital_model() before simulation.
     
     Checks for required parameters, valid ranges, and internal consistency.
-    Returns validated params dict with deprecation warnings for legacy usage.
+    Returns validated params dict.
     
     Args:
         params: Dictionary of simulation parameters
@@ -229,15 +235,10 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
                 If False, only warn and use defaults where possible.
     
     Returns:
-        Validated and potentially corrected parameter dictionary.
+        Validated parameter dictionary.
         
     Raises:
         ValueError: If required parameters are missing (when strict=True)
-        
-    Example:
-        params = get_scenario_params('covid_delta')
-        validated = validate_scenario_params(params)
-        results = simulate_master_hospital_model(**validated)
     """
     validated = deepcopy(params)
     issues = []
@@ -262,52 +263,43 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
         if not (0 < beta < 2.0):
             warnings_list.append(f"beta_base={beta} outside typical range (0, 2.0)")
     
-    if 'VE' in validated and validated['VE'] is not None:
-        ve = validated['VE']
-        if not (0 <= ve <= 1):
-            issues.append(f"VE={ve} must be in [0, 1]")
-    
-    for ve_key in ['VE_infection', 'VE_severe', 'VE_death']:
-        if ve_key in validated and validated[ve_key] is not None:
-            ve = validated[ve_key]
-            if not (0 <= ve <= 1):
-                issues.append(f"{ve_key}={ve} must be in [0, 1]")
-    
-    # Coverage validation
-    if 'coverage' in validated:
-        coverage = validated['coverage']
-        if isinstance(coverage, list):
-            for i, c in enumerate(coverage):
-                if not (0 <= c <= 1):
-                    issues.append(f"coverage[{i}]={c} must be in [0, 1]")
-        elif isinstance(coverage, (int, float)):
-            if not (0 <= coverage <= 1):
-                issues.append(f"coverage={coverage} must be in [0, 1]")
-    
-    # Capacity validation
-    for cap_key in ['ward_capacity', 'icu_capacity']:
-        if cap_key in validated and validated[cap_key] is not None:
-            cap = validated[cap_key]
-            if cap <= 0:
-                issues.append(f"{cap_key}={cap} must be positive")
-    
-    # ========================================
-    # Deprecation Warnings for Legacy VE
-    # ========================================
-    if 'VE' in validated and validated['VE'] is not None:
-        # Check if three-factor params are also provided
-        has_three_factor = any(
-            validated.get(k) is not None 
-            for k in ['VE_infection', 'VE_severe', 'VE_death']
-        )
-        if not has_three_factor and validated['VE'] > 0:
-            _warnings.warn(
-                "Using legacy 'VE' parameter. Consider migrating to Three-Factor Model "
-                "with VE_infection, VE_severe, VE_death for more realistic vaccine modeling. "
-                "See config.VACCINE_PROFILES for preset profiles.",
-                DeprecationWarning,
-                stacklevel=2
-            )
+    # Vaccine Config Validation
+    if 'vaccine_config' in validated:
+        vax_config = validated['vaccine_config']
+        
+        for ve_key in ['VE_infection', 'VE_severe', 'VE_death']:
+            if ve_key in vax_config and vax_config[ve_key] is not None:
+                ve = vax_config[ve_key]
+                if not (0 <= ve <= 1):
+                    issues.append(f"vaccine_config['{ve_key}']={ve} must be in [0, 1]")
+        
+        # Coverage validation
+        if 'coverage' in vax_config:
+            coverage = vax_config['coverage']
+            if isinstance(coverage, list):
+                for i, c in enumerate(coverage):
+                    if not (0 <= c <= 1):
+                        issues.append(f"coverage[{i}]={c} must be in [0, 1]")
+            elif isinstance(coverage, (int, float)):
+                if not (0 <= coverage <= 1):
+                    issues.append(f"coverage={coverage} must be in [0, 1]")
+                    
+        # Vaccination rate validation
+        if 'vaccination_rate' in vax_config:
+            rate = vax_config['vaccination_rate']
+            if isinstance(rate, (int, float)):
+                if rate < 0:
+                    issues.append(f"vaccination_rate={rate} must be non-negative")
+            # If list/array, assume valid for now or add more complex validation
+
+    # Capacity Config Validation
+    if 'capacity_config' in validated:
+        cap_config = validated['capacity_config']
+        for cap_key in ['ward_capacity', 'icu_capacity']:
+            if cap_key in cap_config and cap_config[cap_key] is not None:
+                cap = cap_config[cap_key]
+                if cap <= 0:
+                    issues.append(f"{cap_key}={cap} must be positive")
     
     # ========================================
     # Age Params Validation
@@ -340,23 +332,23 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
     # ========================================
     # Intervention Validation
     # ========================================
-    if 'interventions' in validated and validated['interventions']:
-        for i, intv in enumerate(validated['interventions']):
+    if 'intervention_config' in validated and validated['intervention_config']:
+        for i, intv in enumerate(validated['intervention_config']):
             required_keys = ['start_day', 'end_day', 'transmission_reduction']
             for key in required_keys:
                 if key not in intv:
-                    issues.append(f"interventions[{i}] missing '{key}'")
+                    issues.append(f"intervention_config[{i}] missing '{key}'")
             if 'transmission_reduction' in intv:
                 tr = intv['transmission_reduction']
                 if not (0 <= tr <= 1):
                     issues.append(
-                        f"interventions[{i}]['transmission_reduction']={tr} "
+                        f"intervention_config[{i}]['transmission_reduction']={tr} "
                         "must be in [0, 1]"
                     )
             if 'start_day' in intv and 'end_day' in intv:
                 if intv['start_day'] >= intv['end_day']:
                     issues.append(
-                        f"interventions[{i}]: start_day must be < end_day"
+                        f"intervention_config[{i}]: start_day must be < end_day"
                     )
     
     # ========================================
@@ -382,16 +374,20 @@ def _apply_vaccine_profile_to_params(params: Dict[str, Any], profile_name: str) 
         return params
     
     profile = get_vaccine_profile(profile_name)
-    params['VE_infection'] = profile['VE_infection']
-    params['VE_severe'] = profile['VE_severe']
-    params['VE_death'] = profile['VE_death']
-    params['theta_vax'] = profile['theta_vax']
+    
+    if 'vaccine_config' not in params:
+        params['vaccine_config'] = {}
+        
+    params['vaccine_config']['VE_infection'] = profile['VE_infection']
+    params['vaccine_config']['VE_severe'] = profile['VE_severe']
+    params['vaccine_config']['VE_death'] = profile['VE_death']
+    params['vaccine_config']['theta_vax'] = profile['theta_vax']
     
     # Handle vaccine waning from profile
     if profile.get('omega_vax', 0) > 0:
-        if 'vaccine_waning_params' not in params or params['vaccine_waning_params'] is None:
-            params['vaccine_waning_params'] = {}
-        params['vaccine_waning_params']['omega_vax'] = profile['omega_vax']
+        if 'vaccine_waning_config' not in params or params['vaccine_waning_config'] is None:
+            params['vaccine_waning_config'] = {}
+        params['vaccine_waning_config']['omega_vax'] = profile['omega_vax']
     
     return params
 
@@ -409,7 +405,6 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
     - Applies vaccine profiles from three-factor model
     - Handles vaccination_rate for dynamic vaccination
     - Validates parameters before returning
-    - Provides deprecation warnings for legacy VE usage
     
     Args:
         scenario_name: Key from SCENARIO_REGISTRY
@@ -435,44 +430,46 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
     else:
         coverage = vaccination
     
-    # Build parameter dict
+    # Build parameter dict with nested configs
     params = {
         'beta_base': scenario['beta_base'],
         'age_params': scenario['age_params'],
         'contact_matrix': scenario.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
         'age_pops': healthcare['age_pops'],
-        'ward_capacity': healthcare['ward_capacity'],
-        'icu_capacity': healthcare['icu_capacity'],
-        'hill_coef_ward': healthcare.get('hill_coef_ward', 4),
-        'hill_coef_icu': healthcare.get('hill_coef_icu', 4),
-        'coverage': coverage,
-        'Tmax': scenario.get('Tmax', 200),
-        'interventions': scenario.get('interventions', []),
-        'theta_X': DEFAULT_SIM_PARAMS.get('theta_X', 0.5),
-        'theta_H': DEFAULT_SIM_PARAMS.get('theta_H', 0.3),
+        'sim_config': {
+            'Tmax': scenario.get('Tmax', 200),
+        },
+        'capacity_config': {
+            'ward_capacity': healthcare['ward_capacity'],
+            'icu_capacity': healthcare['icu_capacity'],
+            'hill_coef_ward': healthcare.get('hill_coef_ward', 4),
+            'hill_coef_icu': healthcare.get('hill_coef_icu', 4),
+            'theta_X': DEFAULT_SIM_PARAMS.get('theta_X', 0.5),
+            'theta_H': DEFAULT_SIM_PARAMS.get('theta_H', 0.3),
+        },
+        'vaccine_config': {
+            'coverage': coverage,
+        },
+        'intervention_config': scenario.get('interventions', []),
     }
     
-    # Apply vaccine profile if specified (new three-factor model)
+    # Apply vaccine profile if specified (three-factor model)
     if vaccine_profile is not None:
         params = _apply_vaccine_profile_to_params(params, vaccine_profile)
-    else:
-        # Legacy VE handling with deprecation warning
-        if 'VE' in scenario and scenario['VE'] is not None:
-            params['VE'] = scenario['VE']
     
     # Handle dynamic vaccination rate
     if 'vaccination_rate' in scenario:
-        params['vaccination_rate'] = scenario['vaccination_rate']
+        params['vaccine_config']['vaccination_rate'] = scenario['vaccination_rate']
     
     # Handle vaccine waning params from scenario
     if 'vaccine_waning_params' in scenario:
-        if 'vaccine_waning_params' not in params:
-            params['vaccine_waning_params'] = {}
-        params['vaccine_waning_params'].update(scenario['vaccine_waning_params'])
+        if 'vaccine_waning_config' not in params:
+            params['vaccine_waning_config'] = {}
+        params['vaccine_waning_config'].update(scenario['vaccine_waning_params'])
     
     # Add seasonal parameters
     if seasonal and seasonal.get('amplitude', 0) > 0:
-        params['seasonal_params'] = {
+        params['seasonal_config'] = {
             'amplitude': seasonal['amplitude'],
             'period': seasonal.get('period', 365),
             'peak_day': seasonal.get('peak_day', 0),
@@ -482,9 +479,9 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
     if waning:
         omega = waning.get('omega', 0.0)
         if omega > 0:
-            params['waning_params'] = {'omega': omega}
+            params['waning_config'] = {'omega': omega}
         elif 'omega_young' in waning:
-            params['waning_params'] = {
+            params['waning_config'] = {
                 'omega_young': waning['omega_young'],
                 'omega_middle': waning['omega_middle'],
                 'omega_elderly': waning['omega_elderly'],
@@ -502,6 +499,12 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
         if 'R_by_age' in ic:
             params['initial_conditions'] = params.get('initial_conditions', {})
             params['initial_conditions']['R_by_age'] = ic['R_by_age']
+            
+    # Handle demographic config
+    if 'demographic_params' in scenario:
+        params['demographic_config'] = scenario['demographic_params']
+    elif 'demographic_config' in scenario:
+        params['demographic_config'] = scenario['demographic_config']
     
     # Validate if requested
     if validate:
@@ -582,10 +585,10 @@ def compare_vaccine_profiles(
     
     if include_no_vaccine:
         no_vax_params = get_scenario_params(base_scenario, validate=False)
-        no_vax_params['coverage'] = [0.0, 0.0, 0.0]
-        no_vax_params['VE_infection'] = 0.0
-        no_vax_params['VE_severe'] = 0.0
-        no_vax_params['VE_death'] = 0.0
+        no_vax_params['vaccine_config']['coverage'] = [0.0, 0.0, 0.0]
+        no_vax_params['vaccine_config']['VE_infection'] = 0.0
+        no_vax_params['vaccine_config']['VE_severe'] = 0.0
+        no_vax_params['vaccine_config']['VE_death'] = 0.0
         results['no_vaccine'] = validate_scenario_params(no_vax_params, strict=False)
     
     for profile_name in profile_names:
@@ -626,10 +629,10 @@ def compare_healthcare_systems(
         
         # Override healthcare system parameters
         params['age_pops'] = system['age_pops']
-        params['ward_capacity'] = system['ward_capacity']
-        params['icu_capacity'] = system['icu_capacity']
-        params['hill_coef_ward'] = system.get('hill_coef_ward', 4)
-        params['hill_coef_icu'] = system.get('hill_coef_icu', 4)
+        params['capacity_config']['ward_capacity'] = system['ward_capacity']
+        params['capacity_config']['icu_capacity'] = system['icu_capacity']
+        params['capacity_config']['hill_coef_ward'] = system.get('hill_coef_ward', 4)
+        params['capacity_config']['hill_coef_icu'] = system.get('hill_coef_icu', 4)
         
         results[sys_name] = validate_scenario_params(params, strict=False)
     
@@ -674,7 +677,7 @@ def create_sensitivity_variants(
     for label, value in zip(labels, values):
         params = get_scenario_params(base_scenario, validate=False)
         
-        # Handle nested parameters (e.g., 'seasonal_params.amplitude')
+        # Handle nested parameters (e.g., 'capacity_config.ward_capacity')
         if '.' in parameter:
             parts = parameter.split('.')
             target = params
@@ -718,7 +721,7 @@ def create_intervention_comparison(
     
     for name, interventions in intervention_sets.items():
         params = get_scenario_params(base_scenario, validate=False)
-        params['interventions'] = interventions
+        params['intervention_config'] = interventions
         results[name] = validate_scenario_params(params, strict=False)
     
     return results

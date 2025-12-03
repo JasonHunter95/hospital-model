@@ -60,11 +60,14 @@ def get_total_array(results, compartment):
 @pytest.fixture
 def minimal_inputs():
     """Minimal valid inputs for simulate_master_hospital_model."""
+    from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     return {
         'beta_base': 0.3,
         'age_params': AGE_PARAMS_DEFAULT,
         'contact_matrix': CONTACT_MATRIX_DEFAULT,
         'age_pops': [3000, 5000, 2000],
+        'sim_config': DEFAULT_SIM_PARAMS,
+        'capacity_config': DEFAULT_CAPACITY_PARAMS,
     }
 
 
@@ -73,11 +76,13 @@ def vaccination_inputs(minimal_inputs):
     """Inputs with vaccination enabled."""
     return {
         **minimal_inputs,
-        'vaccination_rate': 0.01,  # 1% of S vaccinated per day
-        'VE_infection': 0.6,
-        'VE_severe': 0.8,
-        'VE_death': 0.9,
-        'Tmax': 100,
+        'vaccine_config': {
+            'vaccination_rate': 0.01,  # 1% of S vaccinated per day
+            'VE_infection': 0.6,
+            'VE_severe': 0.8,
+            'VE_death': 0.9,
+        },
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
     }
 
 
@@ -86,11 +91,13 @@ def high_vaccination_inputs(minimal_inputs):
     """Inputs with high vaccination rate."""
     return {
         **minimal_inputs,
-        'vaccination_rate': 0.05,  # 5% of S vaccinated per day
-        'VE_infection': 0.8,
-        'VE_severe': 0.9,
-        'VE_death': 0.95,
-        'Tmax': 200,
+        'vaccine_config': {
+            'vaccination_rate': 0.05,  # 5% of S vaccinated per day
+            'VE_infection': 0.8,
+            'VE_severe': 0.9,
+            'VE_death': 0.95,
+        },
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200},
     }
 
 
@@ -99,11 +106,13 @@ def perfect_vaccine_inputs(minimal_inputs):
     """Inputs with perfect vaccine (100% efficacy in all factors)."""
     return {
         **minimal_inputs,
-        'vaccination_rate': 0.02,
-        'VE_infection': 1.0,
-        'VE_severe': 1.0,
-        'VE_death': 1.0,
-        'Tmax': 100,
+        'vaccine_config': {
+            'vaccination_rate': 0.02,
+            'VE_infection': 1.0,
+            'VE_severe': 1.0,
+            'VE_death': 1.0,
+        },
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
     }
 
 
@@ -112,15 +121,17 @@ def vaccine_waning_inputs(minimal_inputs):
     """Inputs with vaccine waning enabled."""
     return {
         **minimal_inputs,
-        'vaccination_rate': 0.02,
-        'VE_infection': 0.7,
-        'VE_severe': 0.8,
-        'VE_death': 0.9,
-        'vaccine_waning_params': {
+        'vaccine_config': {
+            'vaccination_rate': 0.02,
+            'VE_infection': 0.7,
+            'VE_severe': 0.8,
+            'VE_death': 0.9,
+        },
+        'vaccine_waning_config': {
             'omega_vax': 0.01,  # ~100 day vaccine immunity duration
             'wane_to_S': True,  # Wane to unvaccinated susceptible
         },
-        'Tmax': 365,
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
     }
 
 
@@ -129,11 +140,13 @@ def age_specific_vaccination_inputs(minimal_inputs):
     """Inputs with age-specific vaccination rates."""
     return {
         **minimal_inputs,
-        'vaccination_rate': [0.005, 0.01, 0.03],  # Higher for elderly
-        'VE_infection': 0.6,
-        'VE_severe': 0.8,
-        'VE_death': 0.9,
-        'Tmax': 100,
+        'vaccine_config': {
+            'vaccination_rate': [0.005, 0.01, 0.03],  # Higher for elderly
+            'VE_infection': 0.6,
+            'VE_severe': 0.8,
+            'VE_death': 0.9,
+        },
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
     }
 
 
@@ -146,11 +159,13 @@ def initial_vaccinated_inputs(minimal_inputs):
             'S_vax_by_age': [500, 1000, 800],  # Some already vaccinated
             'I_by_age': [10, 10, 10],
         },
-        'vaccination_rate': 0.01,
-        'VE_infection': 0.6,
-        'VE_severe': 0.8,
-        'VE_death': 0.9,
-        'Tmax': 100,
+        'vaccine_config': {
+            'vaccination_rate': 0.01,
+            'VE_infection': 0.6,
+            'VE_severe': 0.8,
+            'VE_death': 0.9,
+        },
+        'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
     }
 
 
@@ -256,10 +271,8 @@ class TestVaccinationDynamics:
     def test_zero_vaccination_rate_no_vaccinations(self, minimal_inputs):
         """With zero vaccination rate, no vaccinations should occur."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.0,
-            VE_infection=0.6,
-            Tmax=100
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
+            vaccine_config={'vaccination_rate': 0.0, 'VE_infection': 0.6},
         )
         
         # All vaccinated compartments should be zero
@@ -274,16 +287,12 @@ class TestVaccinationDynamics:
     def test_higher_vaccination_rate_faster_coverage(self, minimal_inputs):
         """Higher vaccination rate should lead to faster S_vax growth."""
         result_low = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            VE_infection=0.6,
-            Tmax=50
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={'vaccination_rate': 0.01, 'VE_infection': 0.6},
         )
         result_high = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.05,
-            VE_infection=0.6,
-            Tmax=50
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={'vaccination_rate': 0.05, 'VE_infection': 0.6},
         )
         
         # At midpoint, higher rate should have more S_vax
@@ -299,7 +308,7 @@ class TestVaccinationDynamics:
         result = simulate_master_hospital_model(**age_specific_vaccination_inputs)
         
         # Elderly (age group 2) with highest rate should have proportionally more vaccinated
-        vax_rates = age_specific_vaccination_inputs['vaccination_rate']
+        vax_rates = age_specific_vaccination_inputs['vaccine_config']['vaccination_rate']
         n_ages = len(vax_rates)
         
         # At early times, S_vax should reflect the relative vaccination rates
@@ -345,10 +354,10 @@ class TestVEInfection:
         The high VE scenario should show significantly fewer breakthrough infections.
         """
         result_low_ve = simulate_master_hospital_model(
-            **{**high_vaccination_inputs, 'VE_infection': 0.3}
+            **{**high_vaccination_inputs, 'vaccine_config': {**high_vaccination_inputs['vaccine_config'], 'VE_infection': 0.3}}
         )
         result_high_ve = simulate_master_hospital_model(
-            **{**high_vaccination_inputs, 'VE_infection': 0.9}
+            **{**high_vaccination_inputs, 'vaccine_config': {**high_vaccination_inputs['vaccine_config'], 'VE_infection': 0.9}}
         )
         
         # R_vax represents cumulative recovered vaccinated (had breakthrough)
@@ -390,16 +399,17 @@ class TestVEInfection:
         for vaccinated individuals.
         """
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.02,
-            VE_infection=1.0,
-            VE_severe=0.0,
-            VE_death=0.0,
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
+            vaccine_config={
+                'vaccination_rate': 0.02,
+                'VE_infection': 1.0,
+                'VE_severe': 0.0,
+                'VE_death': 0.0,
+            },
             initial_conditions={
                 'S_vax_by_age': [1000, 1500, 500],  # Start with vaccinated
                 'I_by_age': [10, 10, 10],  # Some initial infections
             },
-            Tmax=100
         )
         
         # With perfect VE_infection, vaccinated should never get infected
@@ -456,18 +466,20 @@ class TestVESevere:
         # Create scenario with breakthrough infections
         inputs = {
             **minimal_inputs,
-            'vaccination_rate': 0.02,
-            'VE_infection': 0.3,  # Allow breakthroughs
-            'VE_death': 0.5,
+            'vaccine_config': {
+                'vaccination_rate': 0.02,
+                'VE_infection': 0.3,  # Allow breakthroughs
+                'VE_death': 0.5,
+            },
             'initial_conditions': {
                 'S_vax_by_age': [1000, 1500, 500],
                 'I_by_age': [50, 50, 50],  # More infections for observable effect
             },
-            'Tmax': 100
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}
         }
         
-        result_low_ve = simulate_master_hospital_model(**{**inputs, 'VE_severe': 0.2})
-        result_high_ve = simulate_master_hospital_model(**{**inputs, 'VE_severe': 0.9})
+        result_low_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.2}})
+        result_high_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.9}})
         
         # Maximum X_vax should be lower with higher VE_severe
         x_vax_low = get_total_array(result_low_ve, 'X_vax')
@@ -507,16 +519,17 @@ class TestVESevere:
         remain mild and resolve without hospitalization.
         """
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.0,  # No new vaccinations
-            VE_infection=0.0,  # No protection from infection
-            VE_severe=1.0,  # Perfect protection from severe disease
-            VE_death=0.0,
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={
+                'vaccination_rate': 0.0,  # No new vaccinations
+                'VE_infection': 0.0,  # No protection from infection
+                'VE_severe': 1.0,  # Perfect protection from severe disease
+                'VE_death': 0.0,
+            },
             initial_conditions={
                 'I_vax_by_age': [50, 80, 30],  # Start with vaccinated infected
                 'S_vax_by_age': [500, 1000, 500],
             },
-            Tmax=50
         )
         
         # X_vax should remain zero with perfect VE_severe
@@ -536,18 +549,20 @@ class TestVEDeath:
         """Higher VE_death should result in fewer deaths among vaccinated."""
         inputs = {
             **minimal_inputs,
-            'vaccination_rate': 0.0,
-            'VE_infection': 0.0,
-            'VE_severe': 0.0,
+            'vaccine_config': {
+                'vaccination_rate': 0.0,
+                'VE_infection': 0.0,
+                'VE_severe': 0.0,
+            },
             'initial_conditions': {
                 'I_vax_by_age': [100, 100, 100],  # Start with infected vaccinated
                 'X_vax_by_age': [50, 50, 50],  # And severe cases
             },
-            'Tmax': 100
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}
         }
         
-        result_low_ve = simulate_master_hospital_model(**{**inputs, 'VE_death': 0.1})
-        result_high_ve = simulate_master_hospital_model(**{**inputs, 'VE_death': 0.95})
+        result_low_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.1}})
+        result_high_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.95}})
         
         # D_vax at end should be lower with higher VE_death
         d_vax_low = get_total_array(result_low_ve, 'D_vax')
@@ -559,18 +574,19 @@ class TestVEDeath:
     def test_perfect_ve_death_no_mortality(self, minimal_inputs):
         """VE_death=1.0 should prevent all deaths in vaccinated compartments."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.0,
-            VE_infection=0.0,
-            VE_severe=0.0,
-            VE_death=1.0,
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
+            vaccine_config={
+                'vaccination_rate': 0.0,
+                'VE_infection': 0.0,
+                'VE_severe': 0.0,
+                'VE_death': 1.0,
+            },
             initial_conditions={
                 'I_vax_by_age': [100, 100, 100],
                 'X_vax_by_age': [100, 100, 100],
                 'H_ward_vax_by_age': [50, 50, 50],
                 'H_icu_vax_by_age': [30, 30, 30],
             },
-            Tmax=100
         )
         
         # D_vax should remain zero
@@ -602,16 +618,17 @@ class TestVaccineWaning:
     def test_wane_to_s_increases_susceptibles(self, minimal_inputs):
         """When wane_to_S=True, waned immunity should increase S."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.03,
-            VE_infection=0.8,
-            VE_severe=0.8,
-            VE_death=0.9,
-            vaccine_waning_params={
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}},
+            vaccine_config={
+                'vaccination_rate': 0.03,
+                'VE_infection': 0.8,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            vaccine_waning_config={
                 'omega_vax': 0.02,  # Fast waning
                 'wane_to_S': True,
             },
-            Tmax=200
         )
         
         # S should have individuals from waned immunity
@@ -621,16 +638,17 @@ class TestVaccineWaning:
     def test_wane_to_s_vax_keeps_in_vaccinated(self, minimal_inputs):
         """When wane_to_S=False, waned immunity should go to S_vax."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.03,
-            VE_infection=0.8,
-            VE_severe=0.8,
-            VE_death=0.9,
-            vaccine_waning_params={
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}},
+            vaccine_config={
+                'vaccination_rate': 0.03,
+                'VE_infection': 0.8,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            vaccine_waning_config={
                 'omega_vax': 0.02,
                 'wane_to_S': False,  # Wane to S_vax
             },
-            Tmax=200
         )
         
         # Total vaccinated population should grow over time
@@ -840,10 +858,8 @@ class TestVaccineProfiles:
                      if k in ['VE_infection', 'VE_severe', 'VE_death']}
         
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            **ve_params,
-            Tmax=50
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={'vaccination_rate': 0.01, **ve_params},
         )
         
         # Should run without error and have vaccinated compartments
@@ -879,10 +895,12 @@ class TestBackwardCompatibility:
         result_no_vax = simulate_master_hospital_model(**minimal_inputs)
         result_with_vax_zero = simulate_master_hospital_model(
             **minimal_inputs,
-            vaccination_rate=0.0,
-            VE_infection=0.5,
-            VE_severe=0.5,
-            VE_death=0.5,
+            vaccine_config={
+                'vaccination_rate': 0.0,
+                'VE_infection': 0.5,
+                'VE_severe': 0.5,
+                'VE_death': 0.5,
+            },
         )
         
         # Unvaccinated compartments should be identical
@@ -924,14 +942,15 @@ class TestCombinedEffects:
     def test_vaccination_with_waning_immunity(self, minimal_inputs):
         """Vaccination should work alongside natural immunity waning."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            VE_infection=0.6,
-            VE_severe=0.8,
-            VE_death=0.9,
-            waning_params={'omega': 0.01},  # Natural immunity waning
-            vaccine_waning_params={'omega_vax': 0.005, 'wane_to_S': True},
-            Tmax=365
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365}},
+            vaccine_config={
+                'vaccination_rate': 0.01,
+                'VE_infection': 0.6,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            waning_config={'omega': 0.01},  # Natural immunity waning
+            vaccine_waning_config={'omega_vax': 0.005, 'wane_to_S': True},
         )
         
         # Should run without error
@@ -957,17 +976,18 @@ class TestCombinedEffects:
     def test_vaccination_with_interventions(self, minimal_inputs):
         """Vaccination should work with policy interventions."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.02,
-            VE_infection=0.7,
-            VE_severe=0.8,
-            VE_death=0.9,
-            interventions=[{
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
+            vaccine_config={
+                'vaccination_rate': 0.02,
+                'VE_infection': 0.7,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            intervention_config=[{
                 'start_day': 30,
                 'end_day': 60,
                 'transmission_reduction': 0.5,
             }],
-            Tmax=100
         )
         
         # Should run without error
@@ -977,17 +997,18 @@ class TestCombinedEffects:
     def test_vaccination_with_seasonality(self, minimal_inputs):
         """Vaccination should work with seasonal forcing."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            VE_infection=0.6,
-            VE_severe=0.8,
-            VE_death=0.9,
-            seasonal_params={
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365}},
+            vaccine_config={
+                'vaccination_rate': 0.01,
+                'VE_infection': 0.6,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            seasonal_config={
                 'amplitude': 0.2,
                 'period': 365,
                 'peak_day': 0,
             },
-            Tmax=365
         )
         
         # Should run without error
@@ -1006,17 +1027,18 @@ class TestEdgeCases:
         """Simulation should handle all-vaccinated initial population."""
         age_pops = minimal_inputs['age_pops']
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.0,
-            VE_infection=0.8,
-            VE_severe=0.9,
-            VE_death=0.95,
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={
+                'vaccination_rate': 0.0,
+                'VE_infection': 0.8,
+                'VE_severe': 0.9,
+                'VE_death': 0.95,
+            },
             initial_conditions={
                 'S_by_age': [0, 0, 0],  # No unvaccinated susceptibles
                 'S_vax_by_age': [p - 10 for p in age_pops],  # Almost all vaccinated
                 'I_by_age': [10, 10, 10],  # Some initial infections
             },
-            Tmax=50
         )
         
         # Population should be conserved
@@ -1040,22 +1062,24 @@ class TestEdgeCases:
         """VE values at 0 and 1 should work correctly."""
         # VE = 0 (no protection)
         result_no_ve = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            VE_infection=0.0,
-            VE_severe=0.0,
-            VE_death=0.0,
-            Tmax=50
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={
+                'vaccination_rate': 0.01,
+                'VE_infection': 0.0,
+                'VE_severe': 0.0,
+                'VE_death': 0.0,
+            },
         )
         
         # VE = 1 (perfect protection)
         result_full_ve = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.01,
-            VE_infection=1.0,
-            VE_severe=1.0,
-            VE_death=1.0,
-            Tmax=50
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
+            vaccine_config={
+                'vaccination_rate': 0.01,
+                'VE_infection': 1.0,
+                'VE_severe': 1.0,
+                'VE_death': 1.0,
+            },
         )
         
         # Both should run without error
@@ -1065,12 +1089,13 @@ class TestEdgeCases:
     def test_very_high_vaccination_rate(self, minimal_inputs):
         """Very high vaccination rate should not cause instability."""
         result = simulate_master_hospital_model(
-            **minimal_inputs,
-            vaccination_rate=0.5,  # 50% per day - extremely high
-            VE_infection=0.6,
-            VE_severe=0.8,
-            VE_death=0.9,
-            Tmax=30
+            **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 30}},
+            vaccine_config={
+                'vaccination_rate': 0.5,  # 50% per day - extremely high
+                'VE_infection': 0.6,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
         )
         
         # All compartments should remain non-negative
@@ -1107,11 +1132,13 @@ class TestEdgeCases:
             age_params=single_age_params,
             contact_matrix=np.array([[8.0]]),
             age_pops=[10000],
-            vaccination_rate=0.02,
-            VE_infection=0.7,
-            VE_severe=0.8,
-            VE_death=0.9,
-            Tmax=100
+            vaccine_config={
+                'vaccination_rate': 0.02,
+                'VE_infection': 0.7,
+                'VE_severe': 0.8,
+                'VE_death': 0.9,
+            },
+            sim_config={'Tmax': 100}
         )
         
         assert 'S_vax' in result

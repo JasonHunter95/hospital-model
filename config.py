@@ -49,7 +49,6 @@ from model_types import (
 DEFAULT_SIM_PARAMS: SimParams = {
     'Tmax': 200,          # simulation duration in days
     'time_step': 0.1,     # Euler integration time step
-    'hill_coef': 4,       # Hill coefficient for admission gating (legacy)
     'theta_X': 0.5,       # relative infectiousness of X compartment
     'theta_H': 0.3,       # relative infectiousness of H (ward + ICU) compartment
     'VE': 0.7,            # vaccine efficacy (leaky model, legacy - use VACCINE_EFFICACY_PARAMS for three-factor)

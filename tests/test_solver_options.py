@@ -31,8 +31,11 @@ def minimal_params():
         'age_params': AGE_PARAMS_DEFAULT,
         'contact_matrix': CONTACT_MATRIX_DEFAULT,
         'age_pops': [3000, 5000, 2000],
-        'Tmax': 30,  # Short simulation for speed
-        'time_step': 0.5,
+        'age_pops': [3000, 5000, 2000],
+        'sim_config': {
+            'Tmax': 30,  # Short simulation for speed
+            'time_step': 0.5,
+        }
     }
 
 
@@ -41,8 +44,10 @@ def high_capacity_params(minimal_params):
     """Params with high capacity (no overflow)."""
     return {
         **minimal_params,
-        'ward_capacity': 5000,
-        'icu_capacity': 1000,
+        'capacity_config': {
+            'ward_capacity': 5000,
+            'icu_capacity': 1000,
+        }
     }
 
 
@@ -304,7 +309,7 @@ class TestStiffSystemHandling:
         high_beta_params = {
             **minimal_params,
             'beta_base': 1.0,  # High transmission
-            'Tmax': 20,
+            'sim_config': {**minimal_params['sim_config'], 'Tmax': 20},
         }
         
         # Explicit method should still work (with warnings possibly)
@@ -321,7 +326,7 @@ class TestStiffSystemHandling:
         high_beta_params = {
             **minimal_params,
             'beta_base': 1.0,
-            'Tmax': 20,
+            'sim_config': {**minimal_params['sim_config'], 'Tmax': 20},
         }
         
         results = simulate_master_hospital_model(
@@ -338,8 +343,10 @@ class TestStiffSystemHandling:
         rapid_params = {
             **minimal_params,
             'beta_base': 0.5,
-            'time_step': 0.1,  # Smaller timestep
-            'Tmax': 20,
+            'sim_config': {
+                'time_step': 0.1,  # Smaller timestep
+                'Tmax': 20,
+            }
         }
         
         results = simulate_master_hospital_model(**rapid_params)
@@ -359,7 +366,7 @@ class TestSolverEdgeCases:
         """Very short simulation should work."""
         short_params = {
             **minimal_params,
-            'Tmax': 1,
+            'sim_config': {**minimal_params['sim_config'], 'Tmax': 1},
         }
         
         results = simulate_master_hospital_model(**short_params)
@@ -378,9 +385,11 @@ class TestSolverEdgeCases:
         large_params = {
             **minimal_params,
             'age_pops': [1_000_000, 2_000_000, 500_000],
-            'ward_capacity': 50000,
-            'icu_capacity': 10000,
-            'Tmax': 20,
+            'capacity_config': {
+                'ward_capacity': 50000,
+                'icu_capacity': 10000,
+            },
+            'sim_config': {**minimal_params['sim_config'], 'Tmax': 20},
         }
         
         results = simulate_master_hospital_model(**large_params)
@@ -397,7 +406,9 @@ class TestScenarioSolverOptions:
     def test_baseline_with_bdf(self):
         """Baseline scenario should work with BDF solver."""
         params = get_scenario_params('baseline')
-        params['Tmax'] = 30  # Shorter for test speed
+        
+        # Override Tmax for speed
+        params['sim_config']['Tmax'] = 30
         
         results = simulate_master_hospital_model(
             **params,
@@ -411,7 +422,9 @@ class TestScenarioSolverOptions:
     def test_stress_test_with_implicit_solver(self):
         """Stress test scenario (high transmission) with implicit solver."""
         params = get_scenario_params('stress_test')
-        params['Tmax'] = 30
+        
+        # Override Tmax for speed
+        params['sim_config']['Tmax'] = 30
         
         results = simulate_master_hospital_model(
             **params,

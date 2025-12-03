@@ -45,62 +45,43 @@ from simulation_helpers import (
     validate_demographic_params
 )
 from time_varying_helpers import seasonal_forcing, policy_multiplier
-from model_types import ODEParams
-from typing import List, Dict, Optional, Any
+from model_types import (
+    ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 
+    VaccineWaningParams, DemographicParams, SeasonalParams, 
+    Intervention, AgeParams, ContactMatrix
+)
+from typing import List, Dict, Optional, Any, Union
 
 
 def simulate_master_hospital_model(
     # Core Data (Required)
-    beta_base,
-    age_params,
-    contact_matrix,
-    age_pops,
+    beta_base: float,
+    age_params: List[AgeParams],
+    contact_matrix: ContactMatrix,
+    age_pops: List[float],
     
     # Grouped Configurations (Optional)
-    sim_config=None,
-    capacity_config=None,
-    vaccine_config=None,
-    vaccine_waning_config=None,
-    demographic_config=None,
-    seasonal_config=None,
-    waning_config=None,
-    intervention_config=None,
+    sim_config: Optional[SimParams] = None,
+    capacity_config: Optional[CapacityParams] = None,
+    vaccine_config: Optional[Dict[str, Any]] = None,  # Can be simple dict or VaccineEfficacyParams + rate
+    vaccine_waning_config: Optional[VaccineWaningParams] = None,
+    demographic_config: Optional[DemographicParams] = None,
+    seasonal_config: Optional[SeasonalParams] = None,
+    waning_config: Optional[Dict[str, float]] = None,
+    intervention_config: Optional[List[Intervention]] = None,
     
     # Initial Conditions
-    initial_conditions=None,
+    initial_conditions: Optional[Dict[str, List[float]]] = None,
     
     # Simulation Control
-    solver='odeint',
-    solver_method='LSODA',
-    rtol=1e-6,
-    atol=1e-9,
+    solver: str = 'odeint',
+    solver_method: str = 'LSODA',
+    rtol: float = 1e-6,
+    atol: float = 1e-9,
     
     # Tracking
-    track_differential_mortality=True,
-    track_compartment_flows=False,
-    
-    # Legacy parameters for backward compatibility (deprecated)
-    coverage=None,
-    VE=None,
-    VE_infection=None,
-    VE_severe=None,
-    VE_death=None,
-    vaccination_rate=None,
-    theta_vax=None,
-    vaccine_waning_params=None,
-    ward_capacity=None,
-    icu_capacity=None,
-    hill_coef_ward=None,
-    hill_coef_icu=None,
-    theta_X=None,
-    theta_H=None,
-    seasonal_params=None,
-    waning_params=None,
-    interventions=None,
-    demographic_params=None,
-    Tmax=None,
-    time_step=None,
-    clip_warning_threshold=None,
+    track_differential_mortality: bool = True,
+    track_compartment_flows: bool = False,
 ):
     """
     Simulate the Master SEIXHRD hospital model with Three-Factor Vaccination.
@@ -121,7 +102,6 @@ def simulate_master_hospital_model(
         - Core rates: 'sigma', 'eta', 'eta_icu', 'gamma_I', 'mu_I', 'gamma_X', 'mu_X'
         - Ward/ICU: 'gamma_ward', 'mu_ward', 'gamma_icu', 'mu_icu'
         - Differential mortality: 'mu_X_untreated', 'mu_ward_denied_icu' (optional)
-        - Legacy aliases: 'gamma_H', 'mu_H' (used as fallback)
     contact_matrix : ndarray
         Contact rates C[a,b] between age groups (infector a, infectee b).
         Shape: (n_ages, n_ages).
@@ -134,7 +114,6 @@ def simulate_master_hospital_model(
         - 'time_step': integration time step
         - 'theta_X': relative infectiousness of X compartment
         - 'theta_H': relative infectiousness of H compartment
-        - 'VE': legacy vaccine efficacy (for backward compatibility)
         - 'theta_vax': relative infectiousness of vaccinated infected individuals
         Default: uses config.DEFAULT_SIM_PARAMS
     
@@ -213,16 +192,6 @@ def simulate_master_hospital_model(
     
     track_compartment_flows : bool, optional
         Track daily flows between compartments. Default: False
-    
-    Legacy Parameters (Deprecated)
-    ------------------------------
-    The following parameters are maintained for backward compatibility but are
-    deprecated in favor of the grouped configuration dictionaries:
-    
-    coverage, VE, VE_infection, VE_severe, VE_death, vaccination_rate, theta_vax,
-    vaccine_waning_params, ward_capacity, icu_capacity, hill_coef_ward, hill_coef_icu,
-    theta_X, theta_H, seasonal_params, waning_params, interventions, demographic_params,
-    Tmax, time_step, clip_warning_threshold
     
     Returns
     -------
@@ -345,90 +314,78 @@ def simulate_master_hospital_model(
     # Parameter Setup with Defaults
     # ========================================
     
-    # Unpack grouped configurations with backward compatibility
-    # Priority: grouped config > legacy parameter > default
+    # Unpack grouped configurations with defaults from config module
     
     # Simulation parameters
     if sim_config is None:
         sim_config = {}
-    Tmax = sim_config.get('Tmax', Tmax if Tmax is not None else config.DEFAULT_SIM_PARAMS['Tmax'])
-    time_step = sim_config.get('time_step', time_step if time_step is not None else config.DEFAULT_SIM_PARAMS['time_step'])
-    theta_X = sim_config.get('theta_X', theta_X if theta_X is not None else config.DEFAULT_SIM_PARAMS['theta_X'])
-    theta_H = sim_config.get('theta_H', theta_H if theta_H is not None else config.DEFAULT_SIM_PARAMS['theta_H'])
-    VE = sim_config.get('VE', VE if VE is not None else config.DEFAULT_SIM_PARAMS['VE'])
-    theta_vax_from_sim = sim_config.get('theta_vax', None)
+    Tmax = sim_config.get('Tmax', config.DEFAULT_SIM_PARAMS['Tmax'])
+    time_step = sim_config.get('time_step', config.DEFAULT_SIM_PARAMS['time_step'])
+    theta_X = sim_config.get('theta_X', config.DEFAULT_SIM_PARAMS['theta_X'])
+    theta_H = sim_config.get('theta_H', config.DEFAULT_SIM_PARAMS['theta_H'])
+    clip_warning_threshold = sim_config.get('clip_warning_threshold', 1e-6)
     
     # Capacity parameters
     if capacity_config is None:
         capacity_config = {}
-    K_ward = capacity_config.get('ward_capacity', ward_capacity if ward_capacity is not None else config.DEFAULT_CAPACITY_PARAMS['ward_capacity'])
-    K_icu = capacity_config.get('icu_capacity', icu_capacity if icu_capacity is not None else config.DEFAULT_CAPACITY_PARAMS['icu_capacity'])
-    n_ward = capacity_config.get('hill_coef_ward', hill_coef_ward if hill_coef_ward is not None else config.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'])
-    n_icu = capacity_config.get('hill_coef_icu', hill_coef_icu if hill_coef_icu is not None else config.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'])
+    K_ward = capacity_config.get('ward_capacity', config.DEFAULT_CAPACITY_PARAMS['ward_capacity'])
+    K_icu = capacity_config.get('icu_capacity', config.DEFAULT_CAPACITY_PARAMS['icu_capacity'])
+    n_ward = capacity_config.get('hill_coef_ward', config.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'])
+    n_icu = capacity_config.get('hill_coef_icu', config.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'])
     
     # Vaccine efficacy parameters
     if vaccine_config is None:
         vaccine_config = {}
     
-    # Handle coverage - can come from vaccine_config or legacy parameter
-    if 'coverage' in vaccine_config:
-        coverage = vaccine_config['coverage']
-    elif coverage is None:
-        coverage = 0.0
+    # Handle coverage - default to 0.0 if not provided
+    coverage = vaccine_config.get('coverage', 0.0)
     
     # Three-factor vaccine efficacy
     vaccine_params = config.VACCINE_EFFICACY_PARAMS
-    VE_infection = vaccine_config.get('VE_infection', VE_infection if VE_infection is not None else vaccine_params['VE_infection'])
-    VE_severe = vaccine_config.get('VE_severe', VE_severe if VE_severe is not None else vaccine_params['VE_severe'])
-    VE_death = vaccine_config.get('VE_death', VE_death if VE_death is not None else vaccine_params['VE_death'])
+    VE_infection = vaccine_config.get('VE_infection', vaccine_params['VE_infection'])
+    VE_severe = vaccine_config.get('VE_severe', vaccine_params['VE_severe'])
+    VE_death = vaccine_config.get('VE_death', vaccine_params['VE_death'])
     
-    # Theta_vax can come from vaccine_config, sim_config, or legacy parameter
+    # Theta_vax can come from vaccine_config or sim_config
     if 'theta_vax' in vaccine_config:
         theta_vax = vaccine_config['theta_vax']
-    elif theta_vax_from_sim is not None:
-        theta_vax = theta_vax_from_sim
-    elif theta_vax is None:
+    elif 'theta_vax' in sim_config:
+        theta_vax = sim_config['theta_vax']
+    else:
         theta_vax = config.DEFAULT_SIM_PARAMS.get('theta_vax', 0.5)
     
     # Vaccination rate
-    if 'vaccination_rate' in vaccine_config:
-        vaccination_rate = vaccine_config['vaccination_rate']
-    elif vaccination_rate is None:
-        vaccination_rate = 0.0
+    vaccination_rate = vaccine_config.get('vaccination_rate', 0.0)
     
     # Vaccine waning parameters
     if vaccine_waning_config is not None:
-        # Use the grouped config
         vaccine_waning_params = vaccine_waning_config
-    elif vaccine_waning_params is None:
-        # No waning by default
+    else:
         vaccine_waning_params = None
     
     # Seasonal parameters
     if seasonal_config is not None:
         seasonal_params = seasonal_config
-    elif seasonal_params is None:
+    else:
         seasonal_params = {'amplitude': 0.0, 'period': 365, 'peak_day': 0}
     
     # Waning immunity parameters
     if waning_config is not None:
         waning_params = waning_config
-    # else: keep waning_params as is (could be None or legacy value)
+    else:
+        waning_params = None
     
     # Intervention parameters
     if intervention_config is not None:
         interventions = intervention_config
-    elif interventions is None:
+    else:
         interventions = []
     
     # Demographic parameters
     if demographic_config is not None:
         demographic_params = demographic_config
-    # else: keep demographic_params as is (could be None or legacy value)
-    
-    # Clip warning threshold
-    if clip_warning_threshold is None:
-        clip_warning_threshold = 1e-6
+    else:
+        demographic_params = None
     
     # Validate age_pops is provided
     n_ages = len(age_pops)
@@ -445,8 +402,7 @@ def simulate_master_hospital_model(
     # ========================================
     # Three-Factor Vaccine Model Setup
     # ========================================
-    # If VE_infection/VE_severe/VE_death are not provided, use legacy VE for backward compatibility
-    # This maps the old leaky model to the three-factor model
+    # Use default vaccine efficacy parameters if not provided
     
     if VE_infection is None:
         VE_infection = vaccine_params['VE_infection'] if any(c > 0 for c in coverage) else 0.0
@@ -471,14 +427,8 @@ def simulate_master_hospital_model(
         omega_vax = [0.0] * n_ages
         vax_waning_destination = 'S'
     else:
-        # Support both 'waning_destination' and legacy 'wane_to_S' parameter names
-        if 'waning_destination' in vaccine_waning_params:
-            vax_waning_destination = vaccine_waning_params['waning_destination']
-        elif 'wane_to_S' in vaccine_waning_params:
-            # Translate boolean wane_to_S to string waning_destination
-            vax_waning_destination = 'S' if vaccine_waning_params['wane_to_S'] else 'S_vax'
-        else:
-            vax_waning_destination = 'S'
+        # Get waning destination (default to 'S' if not specified)
+        vax_waning_destination = vaccine_waning_params.get('waning_destination', 'S')
         if 'omega_vax' in vaccine_waning_params:
             omega_vax = [vaccine_waning_params['omega_vax']] * n_ages
         elif 'omega_vax_by_age' in vaccine_waning_params and vaccine_waning_params['omega_vax_by_age'] is not None:
@@ -519,44 +469,27 @@ def simulate_master_hospital_model(
     I = _coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
     E = _coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
     
-    # Handle X compartments: support both legacy 'X_by_age' and new split compartments
-    # For backward compatibility: if only X_by_age is provided, put all in X_queued (none admitted yet)
-    X_queued_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_by_age', config.DEFAULT_INITIAL_CONDITIONS.get('X_by_age', [0, 0, 0]))
+    # Handle X compartments (split into queued and admitted)
+    X_queued_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_by_age', [0, 0, 0])
     X_admitted_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_by_age', [0, 0, 0])
     
-    if 'X_queued_by_age' in ic_defaults or 'X_admitted_by_age' in ic_defaults:
-        # Use new split compartments if provided
-        X_queued = _coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
-        X_admitted = _coerce_initial_vector(ic_defaults, 'X_admitted_by_age', n_ages, X_admitted_default)
-    elif 'X_by_age' in ic_defaults:
-        # Legacy: put all X in X_queued (waiting for admission)
-        X_queued = _coerce_initial_vector(ic_defaults, 'X_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS.get('X_by_age', [0, 0, 0]))
-        X_admitted = [0.0] * n_ages
-    else:
-        X_queued = _coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
-        X_admitted = [0.0] * n_ages
+    X_queued = _coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
+    X_admitted = _coerce_initial_vector(ic_defaults, 'X_admitted_by_age', n_ages, X_admitted_default)
     
     H_ward = _coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
     H_icu = _coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
     R = _coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
     D = _coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
     
-    # Vaccinated compartments - handle X split similarly
+    # Vaccinated compartments - handle X split
     E_vax = _coerce_initial_vector(ic_defaults, 'E_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_vax_by_age'])
     I_vax = _coerce_initial_vector(ic_defaults, 'I_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_vax_by_age'])
     
-    X_queued_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_vax_by_age', config.DEFAULT_INITIAL_CONDITIONS.get('X_vax_by_age', [0, 0, 0]))
+    X_queued_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_vax_by_age', [0, 0, 0])
     X_admitted_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_vax_by_age', [0, 0, 0])
     
-    if 'X_queued_vax_by_age' in ic_defaults or 'X_admitted_vax_by_age' in ic_defaults:
-        X_queued_vax = _coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
-        X_admitted_vax = _coerce_initial_vector(ic_defaults, 'X_admitted_vax_by_age', n_ages, X_admitted_vax_default)
-    elif 'X_vax_by_age' in ic_defaults:
-        X_queued_vax = _coerce_initial_vector(ic_defaults, 'X_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS.get('X_vax_by_age', [0, 0, 0]))
-        X_admitted_vax = [0.0] * n_ages
-    else:
-        X_queued_vax = _coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
-        X_admitted_vax = [0.0] * n_ages
+    X_queued_vax = _coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
+    X_admitted_vax = _coerce_initial_vector(ic_defaults, 'X_admitted_vax_by_age', n_ages, X_admitted_vax_default)
     
     H_ward_vax = _coerce_initial_vector(ic_defaults, 'H_ward_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_vax_by_age'])
     H_icu_vax = _coerce_initial_vector(ic_defaults, 'H_icu_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_vax_by_age'])
@@ -735,429 +668,34 @@ def simulate_master_hospital_model(
         )
     solution = np.clip(solution, 0, None)
     
-    # ========================================
-    # Unpack Solution and Build History Arrays
-    # ========================================
-    times = list(t_eval)
-    n_times = len(times)
-    
-    # Per-age compartment histories (unvaccinated)
-    S_history = [[] for _ in range(n_ages)]
-    E_history = [[] for _ in range(n_ages)]
-    I_history = [[] for _ in range(n_ages)]
-    X_queued_history = [[] for _ in range(n_ages)]
-    X_admitted_history = [[] for _ in range(n_ages)]
-    X_history = [[] for _ in range(n_ages)]  # Combined X for backward compatibility
-    H_ward_history = [[] for _ in range(n_ages)]
-    H_icu_history = [[] for _ in range(n_ages)]
-    R_history = [[] for _ in range(n_ages)]
-    D_history = [[] for _ in range(n_ages)]
-    D_treated_history = [[] for _ in range(n_ages)]
-    D_untreated_history = [[] for _ in range(n_ages)]
-    
-    # Per-age compartment histories (vaccinated)
-    S_vax_history = [[] for _ in range(n_ages)]
-    E_vax_history = [[] for _ in range(n_ages)]
-    I_vax_history = [[] for _ in range(n_ages)]
-    X_queued_vax_history = [[] for _ in range(n_ages)]
-    X_admitted_vax_history = [[] for _ in range(n_ages)]
-    X_vax_history = [[] for _ in range(n_ages)]  # Combined X_vax for backward compatibility
-    H_ward_vax_history = [[] for _ in range(n_ages)]
-    H_icu_vax_history = [[] for _ in range(n_ages)]
-    R_vax_history = [[] for _ in range(n_ages)]
-    D_vax_history = [[] for _ in range(n_ages)]
-    D_vax_treated_history = [[] for _ in range(n_ages)]
-    D_vax_untreated_history = [[] for _ in range(n_ages)]
-    
-    # Demographic tracking histories
-    cum_births_history = [[] for _ in range(n_ages)]
-    cum_background_deaths_history = [[] for _ in range(n_ages)]
-    
-    # Extract per-age histories from solution
-    for t_idx in range(n_times):
-        state = _unpack_state(solution[t_idx], n_ages)
-        for a in range(n_ages):
-            S_history[a].append(state['S'][a])
-            E_history[a].append(state['E'][a])
-            I_history[a].append(state['I'][a])
-            X_queued_history[a].append(state['X_queued'][a])
-            X_admitted_history[a].append(state['X_admitted'][a])
-            X_history[a].append(state['X_queued'][a] + state['X_admitted'][a])  # Backward compat
-            H_ward_history[a].append(state['H_ward'][a])
-            H_icu_history[a].append(state['H_icu'][a])
-            R_history[a].append(state['R'][a])
-            D_history[a].append(state['D'][a])
-            D_treated_history[a].append(state['D_treated'][a])
-            D_untreated_history[a].append(state['D_untreated'][a])
-            
-            S_vax_history[a].append(state['S_vax'][a])
-            E_vax_history[a].append(state['E_vax'][a])
-            I_vax_history[a].append(state['I_vax'][a])
-            X_queued_vax_history[a].append(state['X_queued_vax'][a])
-            X_admitted_vax_history[a].append(state['X_admitted_vax'][a])
-            X_vax_history[a].append(state['X_queued_vax'][a] + state['X_admitted_vax'][a])  # Backward compat
-            H_ward_vax_history[a].append(state['H_ward_vax'][a])
-            H_icu_vax_history[a].append(state['H_icu_vax'][a])
-            R_vax_history[a].append(state['R_vax'][a])
-            D_vax_history[a].append(state['D_vax'][a])
-            D_vax_treated_history[a].append(state['D_vax_treated'][a])
-            D_vax_untreated_history[a].append(state['D_vax_untreated'][a])
-            cum_births_history[a].append(state['cum_births'][a])
-            cum_background_deaths_history[a].append(state['cum_background_deaths'][a])
     
     # ========================================
-    # Post-Processing: Compute Auxiliary Metrics
+    # Process Results
     # ========================================
-    # Aggregated histories
-    H_ward_total_history = []
-    H_icu_total_history = []
-    H_total_history = []
-    E_total_history = []
-    I_total_history = []
-    X_total_history = []
-    D_total_history = []
-    D_treated_total_history = []
-    D_untreated_total_history = []
+    from result_processor import ResultProcessor
     
-    # Vaccinated aggregates
-    H_ward_vax_total_history = []
-    H_icu_vax_total_history = []
-    H_vax_total_history = []
-    E_vax_total_history = []
-    I_vax_total_history = []
-    X_vax_total_history = []
-    D_vax_total_history = []
-    vaccinated_total_history = []
-    breakthrough_infections_history = []
+    processor = ResultProcessor(
+        solution=solution,
+        times=list(t_eval),
+        ode_params=ode_params,
+        coverage=coverage,
+        vaccination_rate=vaccination_rate,
+        vaccine_waning_params=vaccine_waning_params,
+        seasonal_params=seasonal_params,
+        waning_params=waning_params,
+        interventions=interventions,
+        demographic_params=validated_demo_params,
+        track_differential_mortality=track_differential_mortality,
+        track_compartment_flows=track_compartment_flows,
+        solver=solver,
+        solver_method=solver_method,
+        rtol=rtol,
+        atol=atol,
+        Tmax=Tmax,
+        time_step=time_step,
+    )
     
-    # Capacity metrics
-    ward_overflow_history = []
-    icu_overflow_history = []
-    g_ward_history = []
-    g_icu_history = []
-    
-    # Demographic aggregates
-    cum_births_total_history = []
-    cum_background_deaths_total_history = []
-    live_population_history = []
-    
-    # Time-varying parameter tracking
-    beta_t_history = []
-    seasonal_factor_history = []
-    policy_mult_history = []
-    
-    # Flow tracking (computed from state differences)
-    new_infections_history = []
-    ward_admissions_history = []
-    icu_admissions_history = []
-    new_vaccinations_history = []
-    breakthrough_infections_daily_history = []
-    
-    # Cumulative overflow (computed via trapezoidal integration)
-    cum_ward_overflow = 0.0
-    cum_icu_overflow = 0.0
-    cum_unmet_ward = [0.0] * n_ages
-    cum_unmet_icu = [0.0] * n_ages
-    
-    # Iterate through solution to compute auxiliary metrics
-    for t_idx in range(n_times):
-        t = times[t_idx]
-        state = _unpack_state(solution[t_idx], n_ages)
-        
-        # Extract compartments
-        S_t = state['S']
-        E_t = state['E']
-        I_t = state['I']
-        # Compute combined X from X_queued and X_admitted
-        X_t = state['X_queued'] + state['X_admitted']
-        H_ward_t = state['H_ward']
-        H_icu_t = state['H_icu']
-        R_t = state['R']
-        D_t = state['D']
-        S_vax_t = state['S_vax']
-        E_vax_t = state['E_vax']
-        I_vax_t = state['I_vax']
-        # Compute combined X_vax from X_queued_vax and X_admitted_vax
-        X_vax_t = state['X_queued_vax'] + state['X_admitted_vax']
-        H_ward_vax_t = state['H_ward_vax']
-        H_icu_vax_t = state['H_icu_vax']
-        R_vax_t = state['R_vax']
-        D_vax_t = state['D_vax']
-        D_treated_t = state['D_treated']
-        D_untreated_t = state['D_untreated']
-        D_vax_treated_t = state['D_vax_treated']
-        D_vax_untreated_t = state['D_vax_untreated']
-        cum_breakthrough_t = state['cum_breakthrough']
-        cum_births_t = state['cum_births']
-        cum_background_deaths_t = state['cum_background_deaths']
-        
-        # Compute aggregates
-        H_ward_total = np.sum(H_ward_t) + np.sum(H_ward_vax_t)
-        H_icu_total = np.sum(H_icu_t) + np.sum(H_icu_vax_t)
-        H_total = H_ward_total + H_icu_total
-        E_total = np.sum(E_t) + np.sum(E_vax_t)
-        I_total = np.sum(I_t) + np.sum(I_vax_t)
-        X_total = np.sum(X_t) + np.sum(X_vax_t)
-        D_total = np.sum(D_t) + np.sum(D_vax_t)
-        
-        # Demographic aggregates
-        cum_births_total = np.sum(cum_births_t)
-        cum_background_deaths_total = np.sum(cum_background_deaths_t)
-        # Live population = all compartments except D (dead)
-        live_pop = (np.sum(S_t) + np.sum(E_t) + np.sum(I_t) + np.sum(X_t) + 
-                    np.sum(H_ward_t) + np.sum(H_icu_t) + np.sum(R_t) +
-                    np.sum(S_vax_t) + np.sum(E_vax_t) + np.sum(I_vax_t) + np.sum(X_vax_t) + 
-                    np.sum(H_ward_vax_t) + np.sum(H_icu_vax_t) + np.sum(R_vax_t))
-        
-        H_ward_vax_total = np.sum(H_ward_vax_t)
-        H_icu_vax_total = np.sum(H_icu_vax_t)
-        H_vax_total = H_ward_vax_total + H_icu_vax_total
-        vaccinated_total = (np.sum(S_vax_t) + np.sum(E_vax_t) + np.sum(I_vax_t) + np.sum(X_vax_t) + 
-                           H_vax_total + np.sum(R_vax_t) + np.sum(D_vax_t))
-        
-        H_ward_total_history.append(H_ward_total)
-        H_icu_total_history.append(H_icu_total)
-        H_total_history.append(H_total)
-        E_total_history.append(E_total)
-        I_total_history.append(I_total)
-        X_total_history.append(X_total)
-        D_total_history.append(D_total)
-        D_treated_total_history.append(np.sum(D_treated_t) + np.sum(D_vax_treated_t))
-        D_untreated_total_history.append(np.sum(D_untreated_t) + np.sum(D_vax_untreated_t))
-        
-        H_ward_vax_total_history.append(H_ward_vax_total)
-        H_icu_vax_total_history.append(H_icu_vax_total)
-        H_vax_total_history.append(H_vax_total)
-        E_vax_total_history.append(np.sum(E_vax_t))
-        I_vax_total_history.append(np.sum(I_vax_t))
-        X_vax_total_history.append(np.sum(X_vax_t))
-        D_vax_total_history.append(np.sum(D_vax_t))
-        vaccinated_total_history.append(vaccinated_total)
-        breakthrough_infections_history.append(np.sum(cum_breakthrough_t))
-        
-        # Demographic aggregates
-        cum_births_total_history.append(cum_births_total)
-        cum_background_deaths_total_history.append(cum_background_deaths_total)
-        live_population_history.append(live_pop)
-        
-        # Time-varying parameters
-        seasonal_factor = seasonal_forcing(
-            t, 1.0,
-            amplitude=seasonal_params.get('amplitude', 0.0),
-            period=seasonal_params.get('period', 365),
-            peak_day=seasonal_params.get('peak_day', 0)
-        )
-        policy_mult = policy_multiplier(t, interventions)
-        beta_t = beta_base * seasonal_factor * policy_mult
-        
-        beta_t_history.append(beta_t)
-        seasonal_factor_history.append(seasonal_factor)
-        policy_mult_history.append(policy_mult)
-        
-        # Capacity gating
-        g_ward = hill_gate(H_ward_total, K_ward, n_ward)
-        g_icu = hill_gate(H_icu_total, K_icu, n_icu)
-        g_ward_history.append(g_ward)
-        g_icu_history.append(g_icu)
-        
-        # Overflow
-        ward_overflow = max(0, H_ward_total - K_ward)
-        icu_overflow = max(0, H_icu_total - K_icu)
-        ward_overflow_history.append(ward_overflow)
-        icu_overflow_history.append(icu_overflow)
-        
-        # Cumulative overflow (trapezoidal integration)
-        if t_idx > 0:
-            dt_local = times[t_idx] - times[t_idx - 1]
-            cum_ward_overflow += 0.5 * (ward_overflow_history[-1] + ward_overflow_history[-2]) * dt_local
-            cum_icu_overflow += 0.5 * (icu_overflow_history[-1] + icu_overflow_history[-2]) * dt_local
-            
-            # Compute unmet care per age group
-            for a in range(n_ages):
-                eta_a = age_params[a]['eta']
-                eta_icu_a = age_params[a].get('eta_icu', 0.1)
-                desired_ward = eta_a * (X_t[a] + X_vax_t[a])
-                actual_ward = desired_ward * g_ward
-                unmet_ward_a = max(0, desired_ward - actual_ward)
-                
-                desired_icu = eta_icu_a * (H_ward_t[a] + H_ward_vax_t[a])
-                actual_icu = desired_icu * g_icu
-                unmet_icu_a = max(0, desired_icu - actual_icu)
-                
-                cum_unmet_ward[a] += unmet_ward_a * dt_local
-                cum_unmet_icu[a] += unmet_icu_a * dt_local
-        
-        # Flow tracking from state differences
-        if track_compartment_flows and t_idx > 0:
-            state_prev = _unpack_state(solution[t_idx - 1], n_ages)
-            dt_local = times[t_idx] - times[t_idx - 1]
-            
-            # Approximate flows from compartment changes
-            # new_infections ~ alpha * E (rate of E -> I)
-            alpha_arr = np.array([age_params[a].get('alpha', 0.2) for a in range(n_ages)])
-            new_inf = alpha_arr * state_prev['E']
-            new_infections_history.append(list(new_inf))
-            
-            # Ward admissions come from X_admitted (already past the admission gate)
-            # ward_admissions ~ eta * X_admitted * g_ward
-            eta_arr = np.array([age_params[a]['eta'] for a in range(n_ages)])
-            X_prev = state_prev['X_queued'] + state_prev['X_admitted']
-            X_vax_prev = state_prev['X_queued_vax'] + state_prev['X_admitted_vax']
-            ward_adm = eta_arr * (X_prev + X_vax_prev) * g_ward_history[-2]
-            ward_admissions_history.append(list(ward_adm))
-            
-            # ICU admissions ~ eta_icu * H_ward * g_icu
-            eta_icu_arr = np.array([age_params[a].get('eta_icu', 0.1) for a in range(n_ages)])
-            icu_adm = eta_icu_arr * (state_prev['H_ward'] + state_prev['H_ward_vax']) * g_icu_history[-2]
-            icu_admissions_history.append(list(icu_adm))
-            
-            # New vaccinations ~ vaccination_rate * S
-            new_vax = vaccination_rate * state_prev['S']
-            new_vaccinations_history.append(list(new_vax))
-            
-            # Breakthrough infections (rate of change)
-            breakthrough_rate = (cum_breakthrough_t - state_prev['cum_breakthrough']) / dt_local
-            breakthrough_infections_daily_history.append(list(breakthrough_rate))
-    
-    # ========================================
-    # Build Results Dictionary
-    # ========================================
-    results = {
-        # Time
-        'times': times,
-        
-        # Per-age compartments (unvaccinated)
-        'S': S_history,
-        'E': E_history,
-        'I': I_history,
-        'X': X_history,  # Combined X = X_queued + X_admitted for backward compatibility
-        'X_queued': X_queued_history,  # Waiting for ward admission
-        'X_admitted': X_admitted_history,  # Admitted, receiving treatment
-        'H_ward': H_ward_history,
-        'H_icu': H_icu_history,
-        'H': [[(H_ward_history[a][t] + H_icu_history[a][t]) 
-               for t in range(len(times))] for a in range(n_ages)],
-        'R': R_history,
-        'D': D_history,
-        
-        # Per-age compartments (vaccinated)
-        'S_vax': S_vax_history,
-        'E_vax': E_vax_history,
-        'I_vax': I_vax_history,
-        'X_vax': X_vax_history,  # Combined X_vax for backward compatibility
-        'X_queued_vax': X_queued_vax_history,
-        'X_admitted_vax': X_admitted_vax_history,
-        'H_ward_vax': H_ward_vax_history,
-        'H_icu_vax': H_icu_vax_history,
-        'H_vax': [[(H_ward_vax_history[a][t] + H_icu_vax_history[a][t]) 
-                   for t in range(len(times))] for a in range(n_ages)],
-        'R_vax': R_vax_history,
-        'D_vax': D_vax_history,
-        
-        # Aggregated totals (combined unvaccinated + vaccinated)
-        'H_ward_total': H_ward_total_history,
-        'H_icu_total': H_icu_total_history,
-        'H_total': H_total_history,
-        'E_total': E_total_history,
-        'I_total': I_total_history,
-        'X_total': X_total_history,
-        'D_total': D_total_history,
-        
-        # Aggregated totals (vaccinated only)
-        'H_ward_vax_total': H_ward_vax_total_history,
-        'H_icu_vax_total': H_icu_vax_total_history,
-        'H_vax_total': H_vax_total_history,
-        'E_vax_total': E_vax_total_history,
-        'I_vax_total': I_vax_total_history,
-        'X_vax_total': X_vax_total_history,
-        'D_vax_total': D_vax_total_history,
-        'vaccinated_total': vaccinated_total_history,
-        'breakthrough_infections': breakthrough_infections_history,
-        
-        # Demographic outputs
-        'cum_births': cum_births_history,
-        'cum_background_deaths': cum_background_deaths_history,
-        'cum_births_total': cum_births_total_history,
-        'cum_background_deaths_total': cum_background_deaths_total_history,
-        'live_population': live_population_history,
-        
-        # Capacity metrics
-        'ward_overflow': ward_overflow_history,
-        'icu_overflow': icu_overflow_history,
-        'cum_ward_overflow': cum_ward_overflow,
-        'cum_icu_overflow': cum_icu_overflow,
-        'cum_overflow': cum_ward_overflow + cum_icu_overflow,
-        'cum_unmet_ward': cum_unmet_ward,
-        'cum_unmet_icu': cum_unmet_icu,
-        'cum_unmet': [cum_unmet_ward[a] + cum_unmet_icu[a] for a in range(n_ages)],
-        'g_ward': g_ward_history,
-        'g_icu': g_icu_history,
-        
-        # Time-varying parameters
-        'beta_t': beta_t_history,
-        'seasonal_factor': seasonal_factor_history,
-        'policy_mult': policy_mult_history,
-        
-        # Metadata
-        'ward_capacity': K_ward,
-        'icu_capacity': K_icu,
-        'age_pops': age_pops,
-        
-        # Parameters for reproducibility
-        'parameters': {
-            'beta_base': beta_base,
-            'coverage': coverage,
-            'VE': VE,
-            'VE_infection': VE_infection,
-            'VE_severe': VE_severe,
-            'VE_death': VE_death,
-            'vaccination_rate': list(vaccination_rate) if isinstance(vaccination_rate, np.ndarray) else vaccination_rate,
-            'theta_vax': theta_vax,
-            'vaccine_waning_params': vaccine_waning_params,
-            'theta_X': theta_X,
-            'theta_H': theta_H,
-            'seasonal_params': seasonal_params,
-            'waning_params': waning_params,
-            'interventions': interventions,
-            'demographic_params': demographic_params,
-            'Tmax': Tmax,
-            'time_step': time_step,
-            'track_differential_mortality': track_differential_mortality,
-            'track_compartment_flows': track_compartment_flows,
-            'age_params': age_params,
-            'contact_matrix': contact_matrix.tolist() if isinstance(contact_matrix, np.ndarray) else contact_matrix,
-            # Solver parameters
-            'solver': solver,
-            'solver_method': solver_method,
-            'rtol': rtol,
-            'atol': atol,
-        }
-    }
-    
-    # Differential mortality results
-    if track_differential_mortality:
-        results.update({
-            'D_treated': D_treated_history,
-            'D_untreated': D_untreated_history,
-            'D_treated_total': D_treated_total_history,
-            'D_untreated_total': D_untreated_total_history,
-            # Vaccinated differential mortality
-            'D_vax_treated': D_vax_treated_history,
-            'D_vax_untreated': D_vax_untreated_history,
-        })
-    
-    # Compartment flows
-    if track_compartment_flows:
-        results.update({
-            'new_infections': new_infections_history,
-            'ward_admissions': ward_admissions_history,
-            'icu_admissions': icu_admissions_history,
-            'new_vaccinations': new_vaccinations_history,
-            'breakthrough_infections_daily': breakthrough_infections_daily_history,
-        })
-    
-    return results
-
+    return processor.process()
 # End of master_hospital_model.py
 # More features that I want to add later:
 # - Integration with real-world data for parameter fitting

@@ -264,6 +264,52 @@ def hill_gate(occupancy, capacity, hill_coef):
     
     return 1.0 / (1.0 + power)
 
+def _hill_gate_vectorized(occupancy, capacity, hill_coef):
+    """
+    Vectorized Hill function gating with numerical stability.
+    
+    This is an internal function called from within the ODE solver.
+    Input validation is performed in the outer simulate function.
+    Uses log-domain computation for large hill_coef to prevent overflow.
+    
+    Parameters
+    ----------
+    occupancy : float
+        Current total occupancy. Assumed non-negative.
+    capacity : float
+        Maximum capacity.
+    hill_coef : float
+        Hill coefficient. Assumed non-negative.
+    
+    Returns
+    -------
+    float
+        Gating factor between 0 and 1.
+    """
+    # Edge cases
+    if capacity <= 0:
+        return 0.0
+    if occupancy <= 0:
+        return 1.0
+    if hill_coef == 0:
+        return 0.5
+    
+    ratio = occupancy / capacity
+    
+    # Use log-domain for numerical stability with large hill_coef
+    if ratio >= 1.0:
+        # For ratio >= 1, result is <= 0.5
+        log_ratio = np.log(ratio)
+        exponent = hill_coef * log_ratio
+        if exponent > 700:  # exp(700) ≈ 1e304, near float max
+            return 0.0  # Overwhelmed capacity
+        power = np.exp(exponent)
+    else:
+        # For ratio < 1, (ratio)^n approaches 0, safe to compute directly
+        power = ratio ** hill_coef
+    
+    return 1.0 / (1.0 + power)
+
 # ============================================================================
 # STATE VECTOR PACKING/UNPACKING
 # ============================================================================
@@ -358,51 +404,7 @@ def _unpack_state(y, n_ages):
     return compartments
 
 
-def _hill_gate_vectorized(occupancy, capacity, hill_coef):
-    """
-    Vectorized Hill function gating with numerical stability.
-    
-    This is an internal function called from within the ODE solver.
-    Input validation is performed in the outer simulate function.
-    Uses log-domain computation for large hill_coef to prevent overflow.
-    
-    Parameters
-    ----------
-    occupancy : float
-        Current total occupancy. Assumed non-negative.
-    capacity : float
-        Maximum capacity.
-    hill_coef : float
-        Hill coefficient. Assumed non-negative.
-    
-    Returns
-    -------
-    float
-        Gating factor between 0 and 1.
-    """
-    # Edge cases
-    if capacity <= 0:
-        return 0.0
-    if occupancy <= 0:
-        return 1.0
-    if hill_coef == 0:
-        return 0.5
-    
-    ratio = occupancy / capacity
-    
-    # Use log-domain for numerical stability with large hill_coef
-    if ratio >= 1.0:
-        # For ratio >= 1, result is <= 0.5
-        log_ratio = np.log(ratio)
-        exponent = hill_coef * log_ratio
-        if exponent > 700:  # exp(700) ≈ 1e304, near float max
-            return 0.0  # Overwhelmed capacity
-        power = np.exp(exponent)
-    else:
-        # For ratio < 1, (ratio)^n approaches 0, safe to compute directly
-        power = ratio ** hill_coef
-    
-    return 1.0 / (1.0 + power)
+
 
 
 # ============================================================================

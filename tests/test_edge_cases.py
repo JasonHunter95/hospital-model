@@ -77,7 +77,7 @@ class TestFullVaccination:
         results_partial = simulate_master_hospital_model(**partial_vaccination_inputs)
         
         # Compare to no vaccination
-        inputs_no_vax = {**partial_vaccination_inputs, 'coverage': 0.0}
+        inputs_no_vax = {**partial_vaccination_inputs, 'vaccine_config': {**partial_vaccination_inputs['vaccine_config'], 'coverage': 0.0}}
         results_no_vax = simulate_master_hospital_model(**inputs_no_vax)
         
         # Vaccinated scenario should have fewer total deaths
@@ -271,7 +271,7 @@ class TestExtremeParameters:
     
     def test_very_high_beta(self, minimal_inputs):
         """Very high transmission rate should cause rapid epidemic."""
-        inputs = {**minimal_inputs, 'beta_base': 2.0, 'Tmax': 50}
+        inputs = {**minimal_inputs, 'beta_base': 2.0, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
         results = simulate_master_hospital_model(**inputs)
         
         # With high beta, infections should peak quickly
@@ -283,17 +283,17 @@ class TestExtremeParameters:
     
     def test_very_low_beta(self, minimal_inputs):
         """Very low transmission rate should cause slow epidemic."""
-        inputs = {**minimal_inputs, 'beta_base': 0.05, 'Tmax': 200}
+        inputs = {**minimal_inputs, 'beta_base': 0.05, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}}
         results = simulate_master_hospital_model(**inputs)
         
         # Compare to high beta scenario - low beta should have fewer deaths
-        inputs_high = {**minimal_inputs, 'beta_base': 0.5, 'Tmax': 200}
+        inputs_high = {**minimal_inputs, 'beta_base': 0.5, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}}
         results_high = simulate_master_hospital_model(**inputs_high)
         assert results['D_total'][-1] < results_high['D_total'][-1]
     
     def test_very_small_time_step(self, minimal_inputs):
         """Very small time step should give more accurate results."""
-        inputs = {**minimal_inputs, 'time_step': 0.01, 'Tmax': 20}
+        inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'time_step': 0.01, 'Tmax': 20}}
         results = simulate_master_hospital_model(**inputs)
         
         # Should have more time points (20/0.01 = 2000, but may be 2000 or 2001)
@@ -301,7 +301,7 @@ class TestExtremeParameters:
     
     def test_large_time_step(self, minimal_inputs):
         """Large time step should still conserve population approximately."""
-        inputs = {**minimal_inputs, 'time_step': 1.0, 'Tmax': 100}
+        inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'time_step': 1.0, 'Tmax': 100}}
         results = simulate_master_hospital_model(**inputs)
         
         # Population should still be approximately conserved
@@ -322,7 +322,7 @@ class TestExtremeParameters:
     
     def test_zero_beta_no_transmission(self, minimal_inputs):
         """Zero transmission rate should stop epidemic immediately."""
-        inputs = {**minimal_inputs, 'beta_base': 0.0, 'Tmax': 50}
+        inputs = {**minimal_inputs, 'beta_base': 0.0, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
         results = simulate_master_hospital_model(**inputs)
         
         # Initial infections should just recover/die, no new ones
@@ -390,7 +390,7 @@ class TestContactMatrix:
             'initial_conditions': {
                 'I_by_age': [10, 0, 0],  # Only young infected initially
             },
-            'Tmax': 50,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50},
         }
         results = simulate_master_hospital_model(**inputs)
         
@@ -413,7 +413,7 @@ class TestContactMatrix:
                 [8.0, 8.0, 8.0],
                 [8.0, 8.0, 8.0]
             ]),
-            'Tmax': 200,
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200},
         }
         results = simulate_master_hospital_model(**inputs)
         

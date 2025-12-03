@@ -30,7 +30,6 @@ class SimParams(TypedDict):
     """Core simulation parameters."""
     Tmax: float
     time_step: float
-    hill_coef: float
     theta_X: float
     theta_H: float
     VE: float

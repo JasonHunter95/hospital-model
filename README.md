@@ -96,7 +96,7 @@ S → E → I → X_queued ──(gated by g_ward)──> X_admitted → H_ward 
             ↓                                  ↓            ↓                          ↓
         (μ_X_untreated)                     (μ_X)      (μ_ward)                    (μ_icu)
             ↓                                  ↓            ↓                          ↓
-        D_untreated ←──────────────────────────┴────────────┴──────────────────────> D_treated
+        D_untreated ←──────────────────────────┴            ┴──────────────────────> D_treated
                                                             ↑
                                               (also μ_ward_denied when ICU gated)
 ```

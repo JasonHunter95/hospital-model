@@ -158,11 +158,11 @@ class TestLowCapacityMortality:
     def test_capacity_ratio_affects_untreated_proportion(self, minimal_inputs):
         """Higher capacity constraint should lead to more untreated deaths."""
         # Low capacity run
-        low_cap = {**minimal_inputs, 'ward_capacity': 10, 'icu_capacity': 3}
+        low_cap = {**minimal_inputs, 'capacity_config': {'ward_capacity': 10, 'icu_capacity': 3, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
         results_low = simulate_master_hospital_model(**low_cap)
         
         # Medium capacity run
-        med_cap = {**minimal_inputs, 'ward_capacity': 50, 'icu_capacity': 15}
+        med_cap = {**minimal_inputs, 'capacity_config': {'ward_capacity': 50, 'icu_capacity': 15, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
         results_med = simulate_master_hospital_model(**med_cap)
         
         # Untreated proportion should be higher with lower capacity
@@ -182,7 +182,7 @@ class TestAgeSpecificMortality:
     
     def test_elderly_higher_mortality(self, minimal_inputs):
         """Elderly should have higher mortality than young."""
-        inputs = {**minimal_inputs, 'Tmax': 300}
+        inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300}}
         results = simulate_master_hospital_model(**inputs)
         
         # Get per-capita deaths
@@ -215,7 +215,11 @@ class TestGatingMortalityCorrelation:
     def test_low_g_ward_increases_untreated(self, minimal_inputs):
         """When g_ward is low, untreated deaths should increase."""
         # Run with low capacity to trigger low g_ward
-        inputs = {**minimal_inputs, 'ward_capacity': 5, 'icu_capacity': 2, 'Tmax': 150}
+        inputs = {
+            **minimal_inputs,
+            'capacity_config': {'ward_capacity': 5, 'icu_capacity': 2, 'hill_coef_ward': 4, 'hill_coef_icu': 4},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}
+        }
         results = simulate_master_hospital_model(**inputs)
         
         # Find time periods where g_ward is low
@@ -332,8 +336,16 @@ class TestMortalityScenarios:
     
     def test_more_deaths_with_lower_capacity(self, minimal_inputs):
         """Lower capacity should result in more total deaths."""
-        high_cap = {**minimal_inputs, 'ward_capacity': 200, 'icu_capacity': 50, 'Tmax': 200}
-        low_cap = {**minimal_inputs, 'ward_capacity': 20, 'icu_capacity': 5, 'Tmax': 200}
+        high_cap = {
+            **minimal_inputs,
+            'capacity_config': {'ward_capacity': 200, 'icu_capacity': 50, 'hill_coef_ward': 4, 'hill_coef_icu': 4},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
+        }
+        low_cap = {
+            **minimal_inputs,
+            'capacity_config': {'ward_capacity': 20, 'icu_capacity': 5, 'hill_coef_ward': 4, 'hill_coef_icu': 4},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
+        }
         
         results_high = simulate_master_hospital_model(**high_cap)
         results_low = simulate_master_hospital_model(**low_cap)
@@ -343,11 +355,15 @@ class TestMortalityScenarios:
     
     def test_intervention_reduces_both_mortality_types(self, minimal_inputs):
         """Intervention should reduce both treated and untreated deaths."""
-        no_int = {**minimal_inputs, 'interventions': [], 'Tmax': 150}
+        no_int = {
+            **minimal_inputs,
+            'intervention_config': [],
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}
+        }
         with_int = {
             **minimal_inputs,
-            'interventions': [{'start_day': 20, 'end_day': 100, 'transmission_reduction': 0.5}],
-            'Tmax': 150,
+            'intervention_config': [{'start_day': 20, 'end_day': 100, 'transmission_reduction': 0.5}],
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}
         }
         
         results_no_int = simulate_master_hospital_model(**no_int)
@@ -358,8 +374,16 @@ class TestMortalityScenarios:
     
     def test_vaccine_reduces_deaths(self, minimal_inputs):
         """Vaccination should reduce both types of deaths."""
-        no_vax = {**minimal_inputs, 'coverage': 0.0, 'Tmax': 200}
-        with_vax = {**minimal_inputs, 'coverage': 0.5, 'VE': 0.7, 'Tmax': 200}
+        no_vax = {
+            **minimal_inputs,
+            'vaccine_config': {'coverage': 0.0},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
+        }
+        with_vax = {
+            **minimal_inputs,
+            'vaccine_config': {'coverage': 0.5, 'VE_infection': 0.7, 'VE_severe': 0.7, 'VE_death': 0.7},
+            'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
+        }
         
         results_no_vax = simulate_master_hospital_model(**no_vax)
         results_with_vax = simulate_master_hospital_model(**with_vax)

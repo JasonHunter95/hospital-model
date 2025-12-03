@@ -300,9 +300,13 @@ class TestGetScenarioParams:
         result = get_scenario_params('baseline')
         
         # Should have core simulation parameters
-        expected_keys = ['beta_base', 'age_params', 'Tmax']
+        expected_keys = ['beta_base', 'age_params', 'sim_config', 'capacity_config', 'vaccine_config']
         for key in expected_keys:
             assert key in result, f"Missing key: {key}"
+            
+        # Check nested keys
+        assert 'Tmax' in result['sim_config']
+        assert 'ward_capacity' in result['capacity_config']
     
     def test_returns_copy_not_reference(self):
         """Should return a copy, not the original dict."""
@@ -322,24 +326,24 @@ class TestRunScenarioWithOverrides:
     """Tests for run_scenario_with_overrides() function."""
     
     def test_applies_simple_override(self):
-        """Should apply simple parameter override."""
+        """Should apply simple parameter override using new grouped config API."""
         result = run_scenario_with_overrides(
             'baseline',
-            overrides={'Tmax': 50}
+            overrides={'sim_config': {'Tmax': 50}}
         )
         # Result is params dict, not simulation output
         assert isinstance(result, dict)
-        assert result.get('Tmax') == 50
+        assert result['sim_config']['Tmax'] == 50
     
     def test_original_scenario_unchanged(self):
         """Original scenario should not be modified."""
         original = get_scenario_params('baseline')
-        original_tmax = original.get('Tmax')
+        original_tmax = original['sim_config']['Tmax']
         
-        run_scenario_with_overrides('baseline', overrides={'Tmax': 10})
+        run_scenario_with_overrides('baseline', overrides={'sim_config': {'Tmax': 10}})
         
         after = get_scenario_params('baseline')
-        assert after.get('Tmax') == original_tmax
+        assert after['sim_config']['Tmax'] == original_tmax
 
 
 # =============================================================================
@@ -370,7 +374,7 @@ class TestCompareVaccineProfiles:
         variants = compare_vaccine_profiles('baseline', profiles)
         
         for name, params in list(variants.items())[:1]:  # Test first only (speed)
-            params['Tmax'] = 10  # Short simulation
+            params['sim_config']['Tmax'] = 10  # Short simulation
             result = simulate_master_hospital_model(**params)
             assert 'times' in result
 
@@ -440,7 +444,7 @@ class TestCreateSensitivityVariants:
         variants = create_sensitivity_variants('baseline', 'beta_base', values)
         
         for name, params in list(variants.items())[:1]:  # Test first only
-            params['Tmax'] = 10
+            params['sim_config']['Tmax'] = 10
             result = simulate_master_hospital_model(**params)
             assert 'times' in result
 
