@@ -94,7 +94,7 @@ compartment_specs = [
 
 **Missing scenarios**: Check available scenarios with:
 ```python
-from config import SCENARIO_REGISTRY
+from scenarios import SCENARIO_REGISTRY
 print(list(SCENARIO_REGISTRY.keys()))
 ```
 

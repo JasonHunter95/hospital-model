@@ -17,7 +17,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from simulate_model import simulate_model
-from config import (
+from scenarios import (
     DEFAULT_SIM_PARAMS,
     DEFAULT_CAPACITY_PARAMS,
     AGE_PARAMS_DEFAULT,

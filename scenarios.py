@@ -2,7 +2,7 @@
 Scenario data and configuration presets for model simulations.
 
 This module contains all scenario-specific data, parameter presets, and configurations.
-These are pure data definitions with no logic. Use config_helpers.py for functions
+These are pure data definitions with no logic. Use scenario_helpers.py for functions
 that operate on these configurations.
 
 It's honestly the bread and butter of the model. You can do so much in here.

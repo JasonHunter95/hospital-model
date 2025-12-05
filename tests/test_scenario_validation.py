@@ -13,8 +13,8 @@ Uses pytest-xdist for parallel execution: pytest -n auto
 
 import pytest
 import numpy as np
-from config import SCENARIO_REGISTRY
-from config_helpers import get_scenario_params
+from scenarios import SCENARIO_REGISTRY
+from scenario_helpers import get_scenario_params
 from simulate_model import simulate_model
 
 
@@ -566,9 +566,9 @@ class TestScenarioRegistryIntegrity:
         """
         required_keys = ['name', 'description']
         
-        for scenario_name, config in SCENARIO_REGISTRY.items():
+        for scenario_name, scenarios in SCENARIO_REGISTRY.items():
             for key in required_keys:
-                assert key in config, \
+                assert key in scenarios, \
                     f"Scenario '{scenario_name}' missing required key '{key}'"
     
     def test_all_scenarios_can_be_loaded(self):

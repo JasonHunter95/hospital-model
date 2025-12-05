@@ -33,7 +33,7 @@ Numerical Integration:
 import warnings
 import numpy as np
 from scipy.integrate import odeint, solve_ivp
-import config
+import scenarios
 from utils import (
     validate_age_structured_inputs,
     coerce_initial_vector,
@@ -117,7 +117,7 @@ def simulate_model(
         - 'theta_X': relative infectiousness of X compartment
         - 'theta_H': relative infectiousness of H compartment
         - 'theta_vax': relative infectiousness of vaccinated infected individuals
-        Default: uses config.DEFAULT_SIM_PARAMS
+        Default: uses scenarios.DEFAULT_SIM_PARAMS
     
     capacity_config : dict, optional
         Healthcare capacity configuration:
@@ -125,7 +125,7 @@ def simulate_model(
         - 'icu_capacity': total ICU capacity
         - 'hill_coef_ward': Hill coefficient for ward admission gating
         - 'hill_coef_icu': Hill coefficient for ICU admission gating
-        Default: uses config.DEFAULT_CAPACITY_PARAMS
+        Default: uses scenarios.DEFAULT_CAPACITY_PARAMS
     
     vaccine_config : dict, optional
         Vaccine efficacy and coverage configuration:
@@ -135,7 +135,7 @@ def simulate_model(
         - 'VE_death': efficacy against death (0-1)
         - 'theta_vax': relative infectiousness of vaccinated infected
         - 'vaccination_rate': daily vaccination rate (float or list)
-        Default: uses config.VACCINE_EFFICACY_PARAMS
+        Default: uses scenarios.VACCINE_EFFICACY_PARAMS
     
     vaccine_waning_config : dict, optional
         Vaccine immunity waning parameters:
@@ -289,8 +289,8 @@ def simulate_model(
     
     Examples
     --------
-    >>> from config import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, AGE_POPS_DEFAULT
-    >>> from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
+    >>> from scenarios import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, AGE_POPS_DEFAULT
+    >>> from scenarios import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     >>> 
     >>> # New grouped parameter style (recommended)
     >>> results = simulate_model(
@@ -316,24 +316,24 @@ def simulate_model(
     # Parameter Setup with Defaults
     # ========================================
     
-    # Unpack grouped configurations with defaults from config module
+    # Unpack grouped configurations with defaults from scenarios module
     
     # Simulation parameters
     if sim_config is None:
         sim_config = {}
-    Tmax = sim_config.get('Tmax', config.DEFAULT_SIM_PARAMS['Tmax'])
-    time_step = sim_config.get('time_step', config.DEFAULT_SIM_PARAMS['time_step'])
-    theta_X = sim_config.get('theta_X', config.DEFAULT_SIM_PARAMS['theta_X'])
-    theta_H = sim_config.get('theta_H', config.DEFAULT_SIM_PARAMS['theta_H'])
+    Tmax = sim_config.get('Tmax', scenarios.DEFAULT_SIM_PARAMS['Tmax'])
+    time_step = sim_config.get('time_step', scenarios.DEFAULT_SIM_PARAMS['time_step'])
+    theta_X = sim_config.get('theta_X', scenarios.DEFAULT_SIM_PARAMS['theta_X'])
+    theta_H = sim_config.get('theta_H', scenarios.DEFAULT_SIM_PARAMS['theta_H'])
     clip_warning_threshold = sim_config.get('clip_warning_threshold', 1e-6)
     
     # Capacity parameters
     if capacity_config is None:
         capacity_config = {}
-    K_ward = capacity_config.get('ward_capacity', config.DEFAULT_CAPACITY_PARAMS['ward_capacity'])
-    K_icu = capacity_config.get('icu_capacity', config.DEFAULT_CAPACITY_PARAMS['icu_capacity'])
-    n_ward = capacity_config.get('hill_coef_ward', config.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'])
-    n_icu = capacity_config.get('hill_coef_icu', config.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'])
+    K_ward = capacity_config.get('ward_capacity', scenarios.DEFAULT_CAPACITY_PARAMS['ward_capacity'])
+    K_icu = capacity_config.get('icu_capacity', scenarios.DEFAULT_CAPACITY_PARAMS['icu_capacity'])
+    n_ward = capacity_config.get('hill_coef_ward', scenarios.DEFAULT_CAPACITY_PARAMS['hill_coef_ward'])
+    n_icu = capacity_config.get('hill_coef_icu', scenarios.DEFAULT_CAPACITY_PARAMS['hill_coef_icu'])
     
     # Vaccine efficacy parameters
     if vaccine_config is None:
@@ -343,7 +343,7 @@ def simulate_model(
     coverage = vaccine_config.get('coverage', 0.0)
     
     # Three-factor vaccine efficacy
-    vaccine_params = config.VACCINE_EFFICACY_PARAMS
+    vaccine_params = scenarios.VACCINE_EFFICACY_PARAMS
     VE_infection = vaccine_config.get('VE_infection', vaccine_params['VE_infection'])
     VE_severe = vaccine_config.get('VE_severe', vaccine_params['VE_severe'])
     VE_death = vaccine_config.get('VE_death', vaccine_params['VE_death'])
@@ -354,7 +354,7 @@ def simulate_model(
     elif 'theta_vax' in sim_config:
         theta_vax = sim_config['theta_vax']
     else:
-        theta_vax = config.DEFAULT_SIM_PARAMS.get('theta_vax', 0.5)
+        theta_vax = scenarios.DEFAULT_SIM_PARAMS.get('theta_vax', 0.5)
     
     # Vaccination rate
     vaccination_rate = vaccine_config.get('vaccination_rate', 0.0)
@@ -463,40 +463,40 @@ def simulate_model(
     # ========================================
     # Initialize Compartments
     # ========================================
-    ic_defaults = config.DEFAULT_INITIAL_CONDITIONS if initial_conditions is None else {
-        **config.DEFAULT_INITIAL_CONDITIONS, **initial_conditions
+    ic_defaults = scenarios.DEFAULT_INITIAL_CONDITIONS if initial_conditions is None else {
+        **scenarios.DEFAULT_INITIAL_CONDITIONS, **initial_conditions
     }
     
     # Unvaccinated compartments
-    I = coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
-    E = coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
+    I = coerce_initial_vector(ic_defaults, 'I_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['I_by_age'])
+    E = coerce_initial_vector(ic_defaults, 'E_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['E_by_age'])
     
     # Handle X compartments (split into queued and admitted)
-    X_queued_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_by_age', [0, 0, 0])
-    X_admitted_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_by_age', [0, 0, 0])
+    X_queued_default = scenarios.DEFAULT_INITIAL_CONDITIONS.get('X_queued_by_age', [0, 0, 0])
+    X_admitted_default = scenarios.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_by_age', [0, 0, 0])
     
     X_queued = coerce_initial_vector(ic_defaults, 'X_queued_by_age', n_ages, X_queued_default)
     X_admitted = coerce_initial_vector(ic_defaults, 'X_admitted_by_age', n_ages, X_admitted_default)
     
-    H_ward = coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
-    H_icu = coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
-    R = coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
-    D = coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
+    H_ward = coerce_initial_vector(ic_defaults, 'H_ward_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['H_ward_by_age'])
+    H_icu = coerce_initial_vector(ic_defaults, 'H_icu_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['H_icu_by_age'])
+    R = coerce_initial_vector(ic_defaults, 'R_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['R_by_age'])
+    D = coerce_initial_vector(ic_defaults, 'D_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['D_by_age'])
     
     # Vaccinated compartments - handle X split
-    E_vax = coerce_initial_vector(ic_defaults, 'E_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['E_vax_by_age'])
-    I_vax = coerce_initial_vector(ic_defaults, 'I_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['I_vax_by_age'])
+    E_vax = coerce_initial_vector(ic_defaults, 'E_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['E_vax_by_age'])
+    I_vax = coerce_initial_vector(ic_defaults, 'I_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['I_vax_by_age'])
     
-    X_queued_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_queued_vax_by_age', [0, 0, 0])
-    X_admitted_vax_default = config.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_vax_by_age', [0, 0, 0])
+    X_queued_vax_default = scenarios.DEFAULT_INITIAL_CONDITIONS.get('X_queued_vax_by_age', [0, 0, 0])
+    X_admitted_vax_default = scenarios.DEFAULT_INITIAL_CONDITIONS.get('X_admitted_vax_by_age', [0, 0, 0])
     
     X_queued_vax = coerce_initial_vector(ic_defaults, 'X_queued_vax_by_age', n_ages, X_queued_vax_default)
     X_admitted_vax = coerce_initial_vector(ic_defaults, 'X_admitted_vax_by_age', n_ages, X_admitted_vax_default)
     
-    H_ward_vax = coerce_initial_vector(ic_defaults, 'H_ward_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_ward_vax_by_age'])
-    H_icu_vax = coerce_initial_vector(ic_defaults, 'H_icu_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['H_icu_vax_by_age'])
-    R_vax = coerce_initial_vector(ic_defaults, 'R_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['R_vax_by_age'])
-    D_vax = coerce_initial_vector(ic_defaults, 'D_vax_by_age', n_ages, config.DEFAULT_INITIAL_CONDITIONS['D_vax_by_age'])
+    H_ward_vax = coerce_initial_vector(ic_defaults, 'H_ward_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['H_ward_vax_by_age'])
+    H_icu_vax = coerce_initial_vector(ic_defaults, 'H_icu_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['H_icu_vax_by_age'])
+    R_vax = coerce_initial_vector(ic_defaults, 'R_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['R_vax_by_age'])
+    D_vax = coerce_initial_vector(ic_defaults, 'D_vax_by_age', n_ages, scenarios.DEFAULT_INITIAL_CONDITIONS['D_vax_by_age'])
     
     # Calculate S_vax based on coverage (initial vaccinated susceptible population)
     # If S_vax_by_age is explicitly provided in initial_conditions, use it
@@ -505,7 +505,7 @@ def simulate_model(
     X_total_init = [X_queued[a] + X_admitted[a] for a in range(n_ages)]
     X_vax_total_init = [X_queued_vax[a] + X_admitted_vax[a] for a in range(n_ages)]
     
-    if 'S_vax_by_age' in ic_defaults and ic_defaults['S_vax_by_age'] != config.DEFAULT_INITIAL_CONDITIONS.get('S_vax_by_age', [0, 0, 0]):
+    if 'S_vax_by_age' in ic_defaults and ic_defaults['S_vax_by_age'] != scenarios.DEFAULT_INITIAL_CONDITIONS.get('S_vax_by_age', [0, 0, 0]):
         S_vax = coerce_initial_vector(ic_defaults, 'S_vax_by_age', n_ages, [0, 0, 0])
         # Calculate remaining S after all compartments
         S = [max(0, age_pops[a] - E[a] - I[a] - X_total_init[a] - H_ward[a] - H_icu[a] - R[a] - D[a]
@@ -584,7 +584,7 @@ def simulate_model(
         'vaccination_rate': np.array(vaccination_rate),
         'seasonal_params': seasonal_params,
         'interventions': interventions,
-        'dm_params': config.DIFFERENTIAL_MORTALITY_PARAMS,
+        'dm_params': scenarios.DIFFERENTIAL_MORTALITY_PARAMS,
         'demographic_params': validated_demo_params,
     }
         

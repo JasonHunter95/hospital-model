@@ -16,7 +16,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from simulate_model import simulate_model
-from config import DIFFERENTIAL_MORTALITY_PARAMS
+from scenarios import DIFFERENTIAL_MORTALITY_PARAMS
 
 
 # ========================================
@@ -197,7 +197,7 @@ class TestAgeSpecificMortality:
         results = simulate_model(**low_capacity_inputs)
         
         # Just verify the simulation runs with capacity constraints
-        # The age-specific multipliers are defined in config
+        # The age-specific multipliers are defined in scenarios
         assert 'D_untreated' in results
         
         # Check that elderly untreated deaths are proportionally higher
@@ -393,14 +393,14 @@ class TestMortalityScenarios:
 
 
 # ========================================
-# Config Parameter Tests
+# Scenario Parameter Tests
 # ========================================
 
-class TestConfigMortalityParams:
-    """Tests for differential mortality parameters from config."""
+class TestScenarioMortalityParams:
+    """Tests for differential mortality parameters from scenarios."""
     
     def test_default_multipliers_exist(self):
-        """Default mortality multipliers should be defined in config."""
+        """Default mortality multipliers should be defined in scenarios."""
         assert 'mu_X_untreated_multiplier' in DIFFERENTIAL_MORTALITY_PARAMS
         assert 'mu_ward_denied_icu_multiplier' in DIFFERENTIAL_MORTALITY_PARAMS
     

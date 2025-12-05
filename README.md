@@ -41,7 +41,7 @@ Run a simulation using model with a pre-defined scenario:
 
 ```python
 from simulate_model import simulate_model
-from config_helpers import get_scenario_params
+from scenario_helpers import get_scenario_params
 
 # Load the 'covid_delta' scenario
 params = get_scenario_params('covid_delta')
@@ -161,10 +161,13 @@ results = simulate_model(
 hospital-model/
 ├── simulate_model.py   # Main simulation entry point
 ├── derivatives.py             # ODE system and physics
-├── config.py                  # Configuration constants and presets
+├── scenario_helpers.py        # Scenario helpers
 ├── scenarios.py               # Scenario definitions
-├── simulation_helpers.py      # Helper functions for simulation logic
+├── capacity_helpers.py        # Capacity helpers (gating functions)
+├── demographic_helpers.py     # Demographic helpers (births, natural deaths)
+├── model_types.py             # Model type definitions for enforcing type safety
 ├── result_processor.py        # Post-processing of simulation results
+├── time_varying_helpers.py    # Time-varying parameter helpers (seasonality, NPIs)
 ├── tests/                     # Comprehensive test suite
 └── notebooks/                 # Jupyter notebooks for experiments
 ```

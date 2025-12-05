@@ -1,5 +1,5 @@
 """
-Unit tests for config_helpers.py functions.
+Unit tests for scenario_helpers.py functions.
 
 This module tests all 14 helper functions for scenario and configuration management:
 1. list_scenarios() - List available scenarios
@@ -20,7 +20,7 @@ This module tests all 14 helper functions for scenario and configuration managem
 
 import pytest
 import numpy as np
-from config_helpers import (
+from scenario_helpers import (
     list_scenarios,
     describe_scenario,
     get_healthcare_systems,
@@ -38,7 +38,7 @@ from config_helpers import (
     list_vaccine_profiles,
     get_vaccine_profile,
 )
-from config import SCENARIO_REGISTRY, AGE_PARAMS_DEFAULT, AGE_PARAMS_EMPIRICAL
+from scenarios import SCENARIO_REGISTRY, AGE_PARAMS_DEFAULT, AGE_PARAMS_EMPIRICAL, HEALTHCARE_SYSTEM_URBAN
 from simulate_model import simulate_model
 
 
@@ -211,7 +211,6 @@ class TestCreateCustomScenario:
     
     def test_creates_scenario_with_name(self):
         """Should create scenario with custom name."""
-        from config import HEALTHCARE_SYSTEM_URBAN
         result = create_custom_scenario(
             name='test_scenario',
             beta_base=0.3,
@@ -224,7 +223,6 @@ class TestCreateCustomScenario:
     
     def test_includes_passed_params(self):
         """Should include passed parameters."""
-        from config import HEALTHCARE_SYSTEM_URBAN
         result = create_custom_scenario(
             name='test',
             beta_base=0.5,
@@ -238,7 +236,6 @@ class TestCreateCustomScenario:
     
     def test_includes_required_fields(self):
         """Should include all required fields."""
-        from config import HEALTHCARE_SYSTEM_URBAN
         result = create_custom_scenario(
             name='minimal',
             beta_base=0.3,
@@ -327,7 +324,7 @@ class TestRunScenarioWithOverrides:
     """Tests for run_scenario_with_overrides() function."""
     
     def test_applies_simple_override(self):
-        """Should apply simple parameter override using new grouped config API."""
+        """Should apply simple parameter override using new grouped scenarios API."""
         result = run_scenario_with_overrides(
             'baseline',
             overrides={'sim_config': {'Tmax': 50}}

@@ -23,14 +23,16 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from simulate_model import simulate_model
-from config import (
+from scenarios import (
     AGE_PARAMS_DEFAULT,
     CONTACT_MATRIX_DEFAULT,
+    DEFAULT_SIM_PARAMS,
+    DEFAULT_CAPACITY_PARAMS,
     AGE_POPS_DEFAULT,
     VACCINE_EFFICACY_PARAMS,
     VACCINE_PROFILES
 )
-from config_helpers import (
+from scenario_helpers import (
     get_vaccine_profile,
     list_vaccine_profiles,
     describe_vaccine_profile
@@ -60,7 +62,6 @@ def get_total_array(results, compartment):
 @pytest.fixture
 def minimal_inputs():
     """Minimal valid inputs for simulate_model."""
-    from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     return {
         'beta_base': 0.3,
         'age_params': AGE_PARAMS_DEFAULT,

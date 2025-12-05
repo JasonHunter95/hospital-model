@@ -8,10 +8,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from master_hospital_model import simulate_model
-    from config_helpers import (
+    from scenario_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
-    from config import (
+    from scenarios import (
         INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
         INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
     )
@@ -19,10 +19,10 @@ except ImportError:
     # fallback for when running from different contexts
     sys.path.append("..")
     from master_hospital_model import simulate_model
-    from config_helpers import (
+    from scenario_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
-    from config import (
+    from scenarios import (
         INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
         INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
     )
@@ -35,7 +35,7 @@ class ModelData:
         except:
             # fallback if scenario not found, use the manual defaults set here
             print(f"Warning: Scenario '{scenario}' not found. Using default parameters.")
-            from config import AGE_PARAMS_EMPIRICAL, CONTACT_MATRIX_DEFAULT
+            from scenarios import AGE_PARAMS_EMPIRICAL, CONTACT_MATRIX_DEFAULT
             self.params = {
                 'beta_base': 0.35,
                 'age_params': AGE_PARAMS_EMPIRICAL,

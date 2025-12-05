@@ -3,7 +3,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 import numpy as np
 
-from config import HEALTHCARE_SYSTEM_SMALL, SCENARIO_REGISTRY, VACCINATION_STRATEGIES, \
+from scenarios import HEALTHCARE_SYSTEM_SMALL, SCENARIO_REGISTRY, VACCINATION_STRATEGIES, \
     AGE_LABELS_SHORT, AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, \
     SEASONAL_PARAMS_NONE, WANING_NONE, INTERVENTION_NONE, \
     HEALTHCARE_SYSTEM_RURAL, HEALTHCARE_SYSTEM_SUBURBAN, HEALTHCARE_SYSTEM_URBAN, \
@@ -260,7 +260,7 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
             params['initial_conditions'] = params.get('initial_conditions', {})
             params['initial_conditions']['R_by_age'] = ic['R_by_age']
             
-    # Handle demographic config
+    # Handle demographic scenarios
     if 'demographic_params' in scenario:
         params['demographic_config'] = scenario['demographic_params']
     elif 'demographic_config' in scenario:
@@ -336,7 +336,7 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
         if not (0 < beta < 2.0):
             warnings_list.append(f"beta_base={beta} outside typical range (0, 2.0)")
     
-    # Vaccine Config Validation
+    # Vaccine scenarios Validation
     if 'vaccine_config' in validated:
         vax_config = validated['vaccine_config']
         
@@ -365,7 +365,7 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
                     issues.append(f"vaccination_rate={rate} must be non-negative")
             # If list/array, assume valid for now or add more complex validation
 
-    # Capacity Config Validation
+    # Capacity scenarios Validation
     if 'capacity_config' in validated:
         cap_config = validated['capacity_config']
         for cap_key in ['ward_capacity', 'icu_capacity']:
@@ -691,7 +691,7 @@ def create_custom_scenario(
     Args:
         name: Scenario name
         beta_base: Baseline transmission rate
-        healthcare_system: Healthcare system config dict
+        healthcare_system: Healthcare system scenarios dict
         vaccination_coverage: [young, middle, elderly] coverage rates
         **kwargs: Additional parameters (age_params, interventions, etc.)
         
