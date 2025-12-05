@@ -34,14 +34,16 @@ import warnings
 import numpy as np
 from scipy.integrate import odeint, solve_ivp
 import config
-from simulation_helpers import (
+from utils import (
     validate_age_structured_inputs,
     coerce_initial_vector,
     pack_state,
+)
+from derivatives import (
     master_deriv_solve_ivp,
     master_deriv,
-    validate_demographic_params
 )
+from demographics import validate_demographic_params
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 from model_types import (
     ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 

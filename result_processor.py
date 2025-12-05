@@ -9,7 +9,8 @@ but was refactored here because the model was becoming too complex for a single 
 
 import numpy as np
 from typing import Dict, List, Any
-from simulation_helpers import unpack_state, hill_gate
+from utils import unpack_state
+from capacity import hill_gate
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 from model_types import ODEParams
 

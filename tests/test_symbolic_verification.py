@@ -1097,7 +1097,7 @@ class TestNumericalVerification:
         """
         Verify hill_gate() function matches symbolic formula.
         """
-        from simulation_helpers import hill_gate
+        from capacity import hill_gate
         
         H_sym = Symbol('H', nonnegative=True)
         K_sym = Symbol('K', positive=True)

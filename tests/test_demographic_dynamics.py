@@ -18,7 +18,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from master_hospital_model import simulate_master_hospital_model
-from simulation_helpers import (
+from demographics import (
     compute_birth_rate,
     compute_background_death_rate,
     validate_demographic_params,
