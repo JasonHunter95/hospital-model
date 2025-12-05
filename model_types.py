@@ -59,8 +59,8 @@ class VaccineWaningParams(TypedDict):
 class SeasonalParams(TypedDict):
     """Seasonality settings."""
     amplitude: float
-    period: float
-    peak_day: float
+    period: int
+    peak_day: int
     description: str
 
 class Intervention(TypedDict):
@@ -92,6 +92,7 @@ class ODEParams(TypedDict):
     """Aggregated parameters passed to the ODE solver."""
     n_ages: int
     contact_matrix: ContactMatrix
+    age_pops: List[int]
     
     # Vaccine Efficacy
     VE_infection: float
@@ -103,6 +104,9 @@ class ODEParams(TypedDict):
     theta_X: float
     theta_H: float
     theta_vax: float
+    omega_vax: float
+    
+    
     
     # Waning and Vaccination
     omega: float
@@ -122,6 +126,10 @@ class ODEParams(TypedDict):
     icu_capacity: float
     hill_coef_ward: float
     hill_coef_icu: float
+    K_ward: float
+    K_icu: float
+    n_ward: float
+    n_icu: float
     
     # Demographics
     demographic_params: DemographicParams

@@ -2,8 +2,6 @@
 
 A comprehensive compartmental epidemic model with hospital capacity constraints, age structure, an exposed (latent) compartment, and ICU separation for analyzing infectious disease dynamics under healthcare system stress.
 
-![Epidemic Wave Animation](https://github.com/user-attachments/assets/b20cf45e-f092-4686-9cad-e39aea3819b5)
-
 
 ## Table of Contents
 
@@ -23,6 +21,7 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
   - [Time-Varying Transmission](#time-varying-transmission-equations)
   - [Numerical Integration](#numerical-integration)
   - [Vaccination Dynamics](#vaccination-dynamics-equations)
+  - [Demographic Dynamics](#demographic-dynamics-births-and-background-deaths)
 - [Installation](#installation)
 - [Testing](#testing)
 - [Development Setup](#development-setup)
@@ -35,7 +34,6 @@ A comprehensive compartmental epidemic model with hospital capacity constraints,
 - [Key Features](#key-features)
 - [Visualization](#visualization-manim-animations)
 - [API Reference](#api-reference)
-- [Demographic Dynamics](#demographic-dynamics-births-and-background-deaths)
 
 ---
 
@@ -88,18 +86,6 @@ The core model divides the population into **nine compartments**, with a critica
 | **H_icu** | ICU - critical care patients |
 | **R** | Recovered - immune individuals |
 | **D** | Dead - disease-related fatalities |
-
-**Flow diagram:**
-
-```text
-S → E → I → X_queued ──(gated by g_ward)──> X_admitted → H_ward ──(gated by g_icu)──> H_icu
-            ↓                                  ↓            ↓                          ↓
-        (μ_X_untreated)                     (μ_X)      (μ_ward)                    (μ_icu)
-            ↓                                  ↓            ↓                          ↓
-        D_untreated ←──────────────────────────┴            ┴──────────────────────> D_treated
-                                                            ↑
-                                              (also μ_ward_denied when ICU gated)
-```
 
 **Key insight:** The split X architecture eliminates the need for "blended effective mortality rates." Patients in `X_queued` always experience the untreated rate, while those in `X_admitted` always experience the treated rate. The Hill gating function controls the **flow** between compartments, not the mortality rate within a compartment.
 
@@ -167,16 +153,20 @@ simulate_master_hospital_model(
 )
 ```
 
-**Features combined in the Master Model:**
+**Features in the Model:**
 
-- ✅ Age-structured compartments (S, E, I, X, H_ward, H_icu, R, D)
-- ✅ Exposed (E) compartment with age-specific latent periods
-- ✅ Separate ward and ICU with independent Hill gating
-- ✅ Differential mortality tracking (D_treated vs D_untreated)
-- ✅ Seasonal forcing of transmission
-- ✅ Policy interventions with configurable timing
-- ✅ Age-specific waning immunity
-- ✅ Vaccination with age-targeted coverage
+- Age-structured compartments (S, E, I, X_queued, X_admitted, H_ward, H_icu, R, D)
+  - Configurable contact matrices for age-specific mixing with vectorized force of infection calculation (super fast).
+- Exposed (E) compartment with age-specific latent periods
+  - Controlled by $\alpha_a$ (E→I rate) per age group in the config
+- Separate ward and ICU with independent Hill gating (X_queued → (gated/ungated) → X_admitted → H_ward → (gated/ungated) → H_icu)
+  - Once again, the config has the ability to set values for `ward`, `icu` capacities and the hill coefficients for each.
+- Differential mortality tracking (D_treated vs D_untreated)
+- Seasonal forcing of transmission (pretty simple sinusoidal function right now, but it does affect dynamics significantly when the parameter is applied)
+- Policy interventions with configurable timing/NPIs (pretty rudimentary implementation currently, but it's functional. The interventions are pretty aggressive and sudden right now, but in the future maybe they can be smoothed out a bit more somehow)
+- Age-specific waning immunity (People return to either S or S_vax depending on settings in the config)
+- Vaccination with age-targeted coverage and "Three-Factor" efficacy (VE_infection, VE_severe, VE_death)
+  - Configurable vaccine profiles, waning parameters, and efficacies in the config
 
 ### Differential Mortality by Care Status
 
@@ -214,7 +204,7 @@ The model implements a **Three-Factor Vaccine Model** with vaccinated compartmen
 
 #### Vaccinated Compartments
 
-| Compartment | Description |s
+| Compartment | Description |
 |-------------|-------------|
 | **S_vax** | Vaccinated susceptible - can still be infected (breakthrough) |
 | **E_vax** | Vaccinated exposed - breakthrough infection in latent period |
@@ -226,17 +216,6 @@ The model implements a **Three-Factor Vaccine Model** with vaccinated compartmen
 | **R_vax** | Vaccinated recovered - recovered from breakthrough infection |
 | **D_vax** | Vaccinated deaths - deaths despite vaccination |
 
-**Flow diagram with vaccination:**
-
-```text
-Unvaccinated:  S  → E  → I  → X_queued ──(gated)──> X_admitted → H_ward → H_icu → R
-               ↓                                                                   ↓
-               ↓ vaccination                                                      D
-               ↓
-Vaccinated:   S_vax → E_vax → I_vax → X_queued_vax ──(gated)──> X_admitted_vax → H_ward_vax → H_icu_vax → R_vax
-                      (reduced λ)  (reduced σ)                    (reduced μ)                              ↓
-                                                                                                       D_vax (reduced μ)
-```
 
 #### Three-Factor Efficacy Mechanism
 
@@ -258,7 +237,7 @@ VE_death = 0.95      # 95% reduction in mortality
 
 #### Vaccine Profiles
 
-Pre-configured vaccine profiles are available:
+Pre-configured vaccine profiles are available (calibrated for covid-19 context, but could easily be changed for other diseases):
 
 | Profile | VE_infection | VE_severe | VE_death | Description |
 |---------|--------------|-----------|----------|-------------|
@@ -1429,6 +1408,169 @@ DIFFERENTIAL_MORTALITY_PARAMS = {
 
 ---
 
+## Demographic Dynamics (Births and Background Deaths)
+
+For long-term endemic simulations, the model supports **open population dynamics** with births and age-specific background (non-disease) mortality. This enables realistic multi-year projections where population size can change over time.
+
+### Enabling Demographics
+
+Pass the `demographic_params` argument to `simulate_master_hospital_model()`:
+
+```python
+from master_hospital_model import simulate_master_hospital_model
+import config
+
+# Enable open population dynamics
+results = simulate_master_hospital_model(
+    beta_base=0.25,
+    age_params=config.AGE_PARAMS_EMPIRICAL,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[300000, 500000, 200000],  # 1 million total
+    
+    # Demographic parameters
+    demographic_params={
+        'birth_rate': 0.000049,           # Daily birth rate per capita (~18/1000/year)
+        'birth_age_distribution': [1.0, 0.0, 0.0],  # Births enter youngest age group
+        'mu_background': [0.0000014, 0.0000082, 0.00011],  # Age-specific daily mortality
+        'neonatal_vaccination_rate': 0.0,  # Optional: fraction of newborns vaccinated
+    },
+    
+    Tmax=1095,  # 3 years
+)
+
+# Check population dynamics
+print(f"Initial population: {sum(config.AGE_POPS_DEFAULT)}")
+print(f"Final live population: {results['live_population'][-1]:.0f}")
+print(f"Cumulative births: {results['cum_births_total'][-1]:.0f}")
+print(f"Cumulative background deaths: {results['cum_background_deaths_total'][-1]:.0f}")
+```
+
+### Demographic Parameters
+
+| Parameter | Symbol | Description | Typical Value |
+|-----------|--------|-------------|---------------|
+| `birth_rate` | $b$ | Daily births per capita (total population) | 0.000049 (~18/1000/year) |
+| `birth_age_distribution` | $p_a$ | Fraction of births entering each age group | [1.0, 0.0, 0.0] |
+| `mu_background` | $\mu_a^{bg}$ | Age-specific daily background mortality rate | [0.0000014, 0.0000082, 0.00011] |
+| `neonatal_vaccination_rate` | $v_0$ | Fraction of newborns vaccinated at birth | 0.0 to 1.0 |
+
+### Mathematical Formulation
+
+#### Births
+
+Births enter the susceptible compartment(s) at a rate proportional to the total live population:
+
+$$\text{births}_a = b \cdot N_{\text{live}} \cdot p_a$$
+
+Where:
+
+- $b$ is the crude birth rate per capita per day
+- $N_{\text{live}}$ is the current total live population (all non-D compartments)
+- $p_a$ is the fraction of births entering age group $a$ (typically $p_0 = 1.0$ for young)
+
+With **neonatal vaccination**, births are split:
+$$\text{births to } S_a = (1 - v_0) \cdot \text{births}_a$$
+$$\text{births to } S_{\text{vax},a} = v_0 \cdot \text{births}_a$$
+
+#### Background Deaths
+
+Background (non-disease) mortality is applied to all **living** compartments at age-specific rates:
+
+$$\frac{dS_a}{dt} = \ldots - \mu_a^{bg} \cdot S_a$$
+$$\frac{dE_a}{dt} = \ldots - \mu_a^{bg} \cdot E_a$$
+$$\frac{dI_a}{dt} = \ldots - \mu_a^{bg} \cdot I_a$$
+
+And similarly for all 16 living compartments (S, E, I, X_queued, X_admitted, H_ward, H_icu, R, and their vaccinated counterparts).
+
+**Note:** Background deaths do NOT enter the D (dead) compartment, which tracks only disease-related fatalities. Background deaths represent natural attrition from causes unrelated to the modeled disease.
+
+### Demographic Presets
+
+The `config.py` module provides ready-to-use demographic configurations:
+
+```python
+import config
+
+# Available presets
+config.DEMOGRAPHIC_PARAMS_NONE       # None - closed population (default)
+config.DEMOGRAPHIC_PARAMS_DEFAULT    # Global average rates
+config.DEMOGRAPHIC_PARAMS_HIGH_INCOME    # Low birth rate, low mortality
+config.DEMOGRAPHIC_PARAMS_LOW_INCOME     # High birth rate, high mortality
+config.DEMOGRAPHIC_PARAMS_EQUILIBRIUM    # Balanced for stable population
+config.DEMOGRAPHIC_PARAMS_NEONATAL_VAX   # 80% neonatal vaccination
+
+# Access via registry
+from config import DEMOGRAPHIC_PRESETS
+demographic_params = DEMOGRAPHIC_PRESETS['equilibrium']
+```
+
+### Demographic Output Variables
+
+| Output | Description |
+|--------|-------------|
+| `cum_births` | Cumulative births by age group (list of arrays) |
+| `cum_background_deaths` | Cumulative background deaths by age group |
+| `cum_births_total` | Total cumulative births (time series) |
+| `cum_background_deaths_total` | Total cumulative background deaths (time series) |
+| `live_population` | Total live population over time |
+
+### Population Drift Warning
+
+For simulations longer than 1 year (Tmax > 365), the model issues a **population drift warning** if births and deaths are significantly imbalanced:
+
+```text
+Warning: Long simulation (Tmax=1095 days) with demographic_params enabled.
+Population will drift over time. Initial birth rate (49.0/1000/year) differs 
+from average background death rate (45.2/1000/year) by more than 10%.
+Monitor 'live_population' in results for population trajectory.
+```
+
+**Key insight:** In endemic scenarios with imbalanced demographics, the population will grow or shrink over time. This is realistic for long-term projections but may affect interpretation. The `live_population` output tracks the total non-deceased population over time.
+
+### Use Cases
+
+1. **Endemic equilibrium analysis**: Study disease dynamics as population reaches demographic steady-state
+2. **Neonatal vaccination programs**: Model diseases where vaccination at birth is standard (HepB, BCG)
+3. **Multi-generational transmission**: Observe how births replenish the susceptible pool
+4. **Long-term policy evaluation**: Assess interventions over multi-year horizons with realistic population turnover
+
+### Example: Endemic with Neonatal Vaccination
+
+```python
+from master_hospital_model import simulate_master_hospital_model
+import config
+
+# Hepatitis B-like scenario with neonatal vaccination
+results = simulate_master_hospital_model(
+    beta_base=0.15,
+    age_params=config.AGE_PARAMS_EMPIRICAL,
+    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
+    age_pops=[300000, 500000, 200000],
+    
+    # No adult vaccination, but 80% neonatal coverage
+    vaccination_rate=0.0,
+    VE_infection=0.90,
+    VE_severe=0.95,
+    VE_death=0.98,
+    
+    # Demographics with neonatal vaccination
+    demographic_params={
+        'birth_rate': 0.000049,
+        'birth_age_distribution': [1.0, 0.0, 0.0],
+        'mu_background': [0.0000014, 0.0000082, 0.00011],
+        'neonatal_vaccination_rate': 0.8,  # 80% of newborns vaccinated
+    },
+    
+    waning_params={'omega': 0.001},  # Slow natural immunity waning
+    
+    Tmax=1095,  # 3 years
+)
+
+# Analyze long-term dynamics
+print(f"Vaccinated susceptibles at 3 years: {sum(results['S_vax'][a][-1] for a in range(3)):.0f}")
+print(f"Cumulative births: {results['cum_births_total'][-1]:.0f}")
+```
+
 ## Key Features
 
 ### Hospital Capacity Constraints
@@ -1615,168 +1757,7 @@ Get predefined vaccine efficacy profiles (mRNA, viral_vector, inactivated, natur
 
 ---
 
-## Demographic Dynamics (Births and Background Deaths)
 
-For long-term endemic simulations, the model supports **open population dynamics** with births and age-specific background (non-disease) mortality. This enables realistic multi-year projections where population size can change over time.
-
-### Enabling Demographics
-
-Pass the `demographic_params` argument to `simulate_master_hospital_model()`:
-
-```python
-from master_hospital_model import simulate_master_hospital_model
-import config
-
-# Enable open population dynamics
-results = simulate_master_hospital_model(
-    beta_base=0.25,
-    age_params=config.AGE_PARAMS_EMPIRICAL,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    age_pops=[300000, 500000, 200000],  # 1 million total
-    
-    # Demographic parameters
-    demographic_params={
-        'birth_rate': 0.000049,           # Daily birth rate per capita (~18/1000/year)
-        'birth_age_distribution': [1.0, 0.0, 0.0],  # Births enter youngest age group
-        'mu_background': [0.0000014, 0.0000082, 0.00011],  # Age-specific daily mortality
-        'neonatal_vaccination_rate': 0.0,  # Optional: fraction of newborns vaccinated
-    },
-    
-    Tmax=1095,  # 3 years
-)
-
-# Check population dynamics
-print(f"Initial population: {sum(config.AGE_POPS_DEFAULT)}")
-print(f"Final live population: {results['live_population'][-1]:.0f}")
-print(f"Cumulative births: {results['cum_births_total'][-1]:.0f}")
-print(f"Cumulative background deaths: {results['cum_background_deaths_total'][-1]:.0f}")
-```
-
-### Demographic Parameters
-
-| Parameter | Symbol | Description | Typical Value |
-|-----------|--------|-------------|---------------|
-| `birth_rate` | $b$ | Daily births per capita (total population) | 0.000049 (~18/1000/year) |
-| `birth_age_distribution` | $p_a$ | Fraction of births entering each age group | [1.0, 0.0, 0.0] |
-| `mu_background` | $\mu_a^{bg}$ | Age-specific daily background mortality rate | [0.0000014, 0.0000082, 0.00011] |
-| `neonatal_vaccination_rate` | $v_0$ | Fraction of newborns vaccinated at birth | 0.0 to 1.0 |
-
-### Mathematical Formulation
-
-#### Births
-
-Births enter the susceptible compartment(s) at a rate proportional to the total live population:
-
-$$\text{births}_a = b \cdot N_{\text{live}} \cdot p_a$$
-
-Where:
-
-- $b$ is the crude birth rate per capita per day
-- $N_{\text{live}}$ is the current total live population (all non-D compartments)
-- $p_a$ is the fraction of births entering age group $a$ (typically $p_0 = 1.0$ for young)
-
-With **neonatal vaccination**, births are split:
-$$\text{births to } S_a = (1 - v_0) \cdot \text{births}_a$$
-$$\text{births to } S_{\text{vax},a} = v_0 \cdot \text{births}_a$$
-
-#### Background Deaths
-
-Background (non-disease) mortality is applied to all **living** compartments at age-specific rates:
-
-$$\frac{dS_a}{dt} = \ldots - \mu_a^{bg} \cdot S_a$$
-$$\frac{dE_a}{dt} = \ldots - \mu_a^{bg} \cdot E_a$$
-$$\frac{dI_a}{dt} = \ldots - \mu_a^{bg} \cdot I_a$$
-
-And similarly for all 16 living compartments (S, E, I, X_queued, X_admitted, H_ward, H_icu, R, and their vaccinated counterparts).
-
-**Note:** Background deaths do NOT enter the D (dead) compartment, which tracks only disease-related fatalities. Background deaths represent natural attrition from causes unrelated to the modeled disease.
-
-### Demographic Presets
-
-The `config.py` module provides ready-to-use demographic configurations:
-
-```python
-import config
-
-# Available presets
-config.DEMOGRAPHIC_PARAMS_NONE       # None - closed population (default)
-config.DEMOGRAPHIC_PARAMS_DEFAULT    # Global average rates
-config.DEMOGRAPHIC_PARAMS_HIGH_INCOME    # Low birth rate, low mortality
-config.DEMOGRAPHIC_PARAMS_LOW_INCOME     # High birth rate, high mortality
-config.DEMOGRAPHIC_PARAMS_EQUILIBRIUM    # Balanced for stable population
-config.DEMOGRAPHIC_PARAMS_NEONATAL_VAX   # 80% neonatal vaccination
-
-# Access via registry
-from config import DEMOGRAPHIC_PRESETS
-demographic_params = DEMOGRAPHIC_PRESETS['equilibrium']
-```
-
-### Demographic Output Variables
-
-| Output | Description |
-|--------|-------------|
-| `cum_births` | Cumulative births by age group (list of arrays) |
-| `cum_background_deaths` | Cumulative background deaths by age group |
-| `cum_births_total` | Total cumulative births (time series) |
-| `cum_background_deaths_total` | Total cumulative background deaths (time series) |
-| `live_population` | Total live population over time |
-
-### Population Drift Warning
-
-For simulations longer than 1 year (Tmax > 365), the model issues a **population drift warning** if births and deaths are significantly imbalanced:
-
-```text
-Warning: Long simulation (Tmax=1095 days) with demographic_params enabled.
-Population will drift over time. Initial birth rate (49.0/1000/year) differs 
-from average background death rate (45.2/1000/year) by more than 10%.
-Monitor 'live_population' in results for population trajectory.
-```
-
-**Key insight:** In endemic scenarios with imbalanced demographics, the population will grow or shrink over time. This is realistic for long-term projections but may affect interpretation. The `live_population` output tracks the total non-deceased population over time.
-
-### Use Cases
-
-1. **Endemic equilibrium analysis**: Study disease dynamics as population reaches demographic steady-state
-2. **Neonatal vaccination programs**: Model diseases where vaccination at birth is standard (HepB, BCG)
-3. **Multi-generational transmission**: Observe how births replenish the susceptible pool
-4. **Long-term policy evaluation**: Assess interventions over multi-year horizons with realistic population turnover
-
-### Example: Endemic with Neonatal Vaccination
-
-```python
-from master_hospital_model import simulate_master_hospital_model
-import config
-
-# Hepatitis B-like scenario with neonatal vaccination
-results = simulate_master_hospital_model(
-    beta_base=0.15,
-    age_params=config.AGE_PARAMS_EMPIRICAL,
-    contact_matrix=config.CONTACT_MATRIX_DEFAULT,
-    age_pops=[300000, 500000, 200000],
-    
-    # No adult vaccination, but 80% neonatal coverage
-    vaccination_rate=0.0,
-    VE_infection=0.90,
-    VE_severe=0.95,
-    VE_death=0.98,
-    
-    # Demographics with neonatal vaccination
-    demographic_params={
-        'birth_rate': 0.000049,
-        'birth_age_distribution': [1.0, 0.0, 0.0],
-        'mu_background': [0.0000014, 0.0000082, 0.00011],
-        'neonatal_vaccination_rate': 0.8,  # 80% of newborns vaccinated
-    },
-    
-    waning_params={'omega': 0.001},  # Slow natural immunity waning
-    
-    Tmax=1095,  # 3 years
-)
-
-# Analyze long-term dynamics
-print(f"Vaccinated susceptibles at 3 years: {sum(results['S_vax'][a][-1] for a in range(3)):.0f}")
-print(f"Cumulative births: {results['cum_births_total'][-1]:.0f}")
-```
 
 ---
 

@@ -1,8 +1,10 @@
 """
-Result processing module for master hospital model.
+Result processing module for hospital model.
 
 This module handles the unpacking and post-processing of raw ODE solver output
 into the comprehensive results dictionary returned by simulate_master_hospital_model.
+It contains functionality that was originally in the main simulation function,
+but was refactored here because the model was becoming too complex for a single function.
 """
 
 import numpy as np
@@ -15,7 +17,7 @@ from model_types import ODEParams
 class ResultProcessor:
     """
     Processes raw ODE solver output into comprehensive simulation results.
-    
+
     This class handles:
     - Unpacking state vectors into compartment histories
     - Computing aggregates across age groups
@@ -38,10 +40,10 @@ class ResultProcessor:
         demographic_params: Dict,
         track_differential_mortality: bool,
         track_compartment_flows: bool,
-        solver: str,
-        solver_method: str,
-        rtol: float,
-        atol: float,
+        solver: str, # Name of ODE solver used (e.g., 'RK45', 'BDF', etc.)
+        solver_method: str, # Solver method (there are several we can use)
+        rtol: float, # Relative tolerance
+        atol: float, # Absolute tolerance
         Tmax: float,
         time_step: float,
     ):
@@ -51,7 +53,7 @@ class ResultProcessor:
         Parameters
         ----------
         solution : np.ndarray
-            Raw ODE solver output (n_times × n_states)
+            Raw ODE solver output (n_times x n_states)
         times : list of float
             Time points corresponding to solution rows
         ode_params : ODEParams

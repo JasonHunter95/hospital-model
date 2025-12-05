@@ -11,12 +11,6 @@ from config import HEALTHCARE_SYSTEM_SMALL, SCENARIO_REGISTRY, VACCINATION_STRAT
     HEALTHCARE_SYSTEM_RESOURCE_LIMITED, HEALTHCARE_SYSTEM_SURGE_MILD, \
     HEALTHCARE_SYSTEM_SURGE_MAJOR, VACCINE_PROFILES, DEFAULT_SIM_PARAMS
 
-from model_types import (
-    ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 
-    VaccineWaningParams, DemographicParams, SeasonalParams, 
-    Intervention
-)
-
 # ============================================================================
 # HELPER FUNCTIONS FOR CONFIGURATION AND SCENARIO MANAGEMENT
 # ============================================================================
@@ -25,6 +19,9 @@ def list_scenarios() -> List[str]:
     """Return list of available scenario names."""
     return list(SCENARIO_REGISTRY.keys())
 
+def list_vaccine_profiles() -> List[str]:
+    """Return list of available vaccine profile names."""
+    return list(VACCINE_PROFILES.keys())
 
 def describe_scenario(scenario_name: str) -> str:
     """Return detailed description of a scenario."""
@@ -65,6 +62,32 @@ def describe_scenario(scenario_name: str) -> str:
     ]
     return '\n'.join(lines)
 
+def describe_vaccine_profile(profile_name: str) -> str:
+    """Return detailed description of a vaccine profile."""
+    if profile_name not in VACCINE_PROFILES:
+        raise ValueError(f"Unknown vaccine profile: {profile_name}")
+    
+    p = VACCINE_PROFILES[profile_name]
+    omega_days = f"{1/p['omega_vax']:.0f}" if p['omega_vax'] > 0 else "∞"
+    
+    lines = [
+        f"=== {profile_name} ===",
+        f"Description: {p['description']}",
+        f"",
+        f"Three-Factor Efficacy:",
+        f"  VE_infection: {p['VE_infection']:.0%} (against infection)",
+        f"  VE_severe:    {p['VE_severe']:.0%} (against severe disease)",
+        f"  VE_death:     {p['VE_death']:.0%} (against death)",
+        f"",
+        f"Breakthrough Dynamics:",
+        f"  θ_vax: {p['theta_vax']:.0%} (relative infectiousness)",
+        f"  Immunity duration: ~{omega_days} days",
+    ]
+    return '\n'.join(lines)
+
+## ===========================================================================
+## Getters for predefined configurations
+## ==========================================================================
 
 def get_healthcare_systems() -> Dict[str, Dict]:
     """Return dictionary of available healthcare system configurations."""
@@ -79,7 +102,6 @@ def get_healthcare_systems() -> Dict[str, Dict]:
         'surge_mild': HEALTHCARE_SYSTEM_SURGE_MILD,
         'surge_major': HEALTHCARE_SYSTEM_SURGE_MAJOR,
     }
-
 
 def get_vaccination_strategies() -> Dict[str, List[float]]:
     """
@@ -102,71 +124,6 @@ def get_vaccination_strategies() -> Dict[str, List[float]]:
         else:
             result[name] = value
     return result
-
-
-def validate_age_params(age_params: List[Dict]) -> bool:
-    """
-    Validate that age parameter dictionaries contain all required keys.
-    
-    Returns True if valid, raises ValueError with details if not.
-    """
-    required_keys = {
-        'alpha', 'sigma', 'eta', 'eta_icu',
-        'gamma_I', 'gamma_X', 'gamma_ward', 'gamma_icu',
-        'mu_I', 'mu_X', 'mu_ward', 'mu_icu',
-    }
-    
-    for i, params in enumerate(age_params):
-        missing = required_keys - set(params.keys())
-        if missing:
-            age_label = AGE_LABELS_SHORT[i] if i < len(AGE_LABELS_SHORT) else f"Age group {i}"
-            raise ValueError(f"{age_label} params missing keys: {missing}")
-    
-    return True
-
-
-def create_custom_scenario(
-    name: str,
-    beta_base: float,
-    healthcare_system: Dict,
-    vaccination_coverage: List[float],
-    **kwargs
-) -> Dict[str, Any]:
-    """
-    Create a custom scenario configuration.
-    
-    Args:
-        name: Scenario name
-        beta_base: Baseline transmission rate
-        healthcare_system: Healthcare system config dict
-        vaccination_coverage: [young, middle, elderly] coverage rates
-        **kwargs: Additional parameters (age_params, interventions, etc.)
-        
-    Returns:
-        Scenario configuration dictionary
-    """
-    scenario = {
-        'name': name,
-        'description': kwargs.get('description', f'Custom scenario: {name}'),
-        'beta_base': beta_base,
-        'age_params': kwargs.get('age_params', AGE_PARAMS_DEFAULT),
-        'contact_matrix': kwargs.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
-        'healthcare_system': healthcare_system,
-        'seasonal_params': kwargs.get('seasonal_params', SEASONAL_PARAMS_NONE),
-        'waning_params': kwargs.get('waning_params', WANING_NONE),
-        'interventions': kwargs.get('interventions', INTERVENTION_NONE),
-        'vaccination': {
-            'coverage': vaccination_coverage,
-            'description': 'Custom coverage',
-        },
-        'VE': kwargs.get('VE', 0.7),
-        'Tmax': kwargs.get('Tmax', 200),
-    }
-    
-    if 'initial_conditions' in kwargs:
-        scenario['initial_conditions'] = kwargs['initial_conditions']
-    
-    return scenario
 
 def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
     """
@@ -193,34 +150,150 @@ def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
     
     return deepcopy(VACCINE_PROFILES[profile_name])
 
+def get_all_scenario_names() -> List[str]:
+    """Return all available scenario names, sorted alphabetically."""
+    return sorted(list(SCENARIO_REGISTRY.keys()))
 
-def list_vaccine_profiles() -> List[str]:
-    """Return list of available vaccine profile names."""
-    return list(VACCINE_PROFILES.keys())
-
-
-def describe_vaccine_profile(profile_name: str) -> str:
-    """Return detailed description of a vaccine profile."""
-    if profile_name not in VACCINE_PROFILES:
-        raise ValueError(f"Unknown vaccine profile: {profile_name}")
+## ============================================================================
+## This is a central function to extract and prepare scenario parameters for 
+## simulate_master_hospital_model()
+## ============================================================================
+def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, Any]:
+    """
+    Extract parameters from a scenario bundle for simulate_master_hospital_model().
     
-    p = VACCINE_PROFILES[profile_name]
-    omega_days = f"{1/p['omega_vax']:.0f}" if p['omega_vax'] > 0 else "∞"
+    - Applies vaccine profiles from three-factor model
+    - Handles vaccination_rate for dynamic vaccination
+    - Validates parameters before returning
     
-    lines = [
-        f"=== {profile_name} ===",
-        f"Description: {p['description']}",
-        f"",
-        f"Three-Factor Efficacy:",
-        f"  VE_infection: {p['VE_infection']:.0%} (against infection)",
-        f"  VE_severe:    {p['VE_severe']:.0%} (against severe disease)",
-        f"  VE_death:     {p['VE_death']:.0%} (against death)",
-        f"",
-        f"Breakthrough Dynamics:",
-        f"  θ_vax: {p['theta_vax']:.0%} (relative infectiousness)",
-        f"  Immunity duration: ~{omega_days} days",
-    ]
-    return '\n'.join(lines)
+    Args:
+        scenario_name: Key from SCENARIO_REGISTRY
+        validate: If True, run validation on extracted params
+        
+    Returns:
+        Dictionary ready to unpack into simulate_master_hospital_model(**params)
+    """
+    if scenario_name not in SCENARIO_REGISTRY:
+        available = list(SCENARIO_REGISTRY.keys())
+        raise ValueError(f"Unknown scenario '{scenario_name}'. Available: {available}")
+    
+    scenario = deepcopy(SCENARIO_REGISTRY[scenario_name])
+    healthcare = scenario.pop('healthcare_system')
+    vaccination = scenario.pop('vaccination')
+    seasonal = scenario.pop('seasonal_params', {})
+    waning = scenario.pop('waning_params', {})
+    vaccine_profile = scenario.pop('vaccine_profile', None)
+    
+    # Handle vaccination - can be dict with 'coverage' key or direct list
+    if isinstance(vaccination, dict):
+        coverage = vaccination.get('coverage', [0.0, 0.0, 0.0])
+    else:
+        coverage = vaccination
+    
+    # Build parameter dict with nested configs
+    params = {
+        'beta_base': scenario['beta_base'],
+        'age_params': scenario['age_params'],
+        'contact_matrix': scenario.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
+        'age_pops': healthcare['age_pops'],
+        'sim_config': {
+            'Tmax': scenario.get('Tmax', 200),
+        },
+        'capacity_config': {
+            'ward_capacity': healthcare['ward_capacity'],
+            'icu_capacity': healthcare['icu_capacity'],
+            'hill_coef_ward': healthcare.get('hill_coef_ward', 4),
+            'hill_coef_icu': healthcare.get('hill_coef_icu', 4),
+            'theta_X': DEFAULT_SIM_PARAMS.get('theta_X', 0.5),
+            'theta_H': DEFAULT_SIM_PARAMS.get('theta_H', 0.3),
+        },
+        'vaccine_config': {
+            'coverage': coverage,
+        },
+        'intervention_config': scenario.get('interventions', []),
+    }
+    
+    # Apply vaccine profile if specified (three-factor model)
+    if vaccine_profile is not None:
+        params = apply_vaccine_profile_to_params(params, vaccine_profile)
+    
+    # Handle dynamic vaccination rate
+    if 'vaccination_rate' in scenario:
+        params['vaccine_config']['vaccination_rate'] = scenario['vaccination_rate']
+    
+    # Handle vaccine waning params from scenario
+    if 'vaccine_waning_params' in scenario:
+        if 'vaccine_waning_config' not in params:
+            params['vaccine_waning_config'] = {}
+        params['vaccine_waning_config'].update(scenario['vaccine_waning_params'])
+    
+    # Add seasonal parameters
+    if seasonal and seasonal.get('amplitude', 0) > 0:
+        params['seasonal_config'] = {
+            'amplitude': seasonal['amplitude'],
+            'period': seasonal.get('period', 365),
+            'peak_day': seasonal.get('peak_day', 0),
+        }
+    
+    # Add waning immunity
+    if waning:
+        omega = waning.get('omega', 0.0)
+        if omega > 0:
+            params['waning_config'] = {'omega': omega}
+        elif 'omega_young' in waning:
+            params['waning_config'] = {
+                'omega_young': waning['omega_young'],
+                'omega_middle': waning['omega_middle'],
+                'omega_elderly': waning['omega_elderly'],
+            }
+    
+    # Add initial conditions if specified
+    if 'initial_conditions' in scenario:
+        ic = scenario['initial_conditions']
+        if 'E_by_age' in ic:
+            params['initial_conditions'] = params.get('initial_conditions', {})
+            params['initial_conditions']['E_by_age'] = ic['E_by_age']
+        if 'I_by_age' in ic:
+            params['initial_conditions'] = params.get('initial_conditions', {})
+            params['initial_conditions']['I_by_age'] = ic['I_by_age']
+        if 'R_by_age' in ic:
+            params['initial_conditions'] = params.get('initial_conditions', {})
+            params['initial_conditions']['R_by_age'] = ic['R_by_age']
+            
+    # Handle demographic config
+    if 'demographic_params' in scenario:
+        params['demographic_config'] = scenario['demographic_params']
+    elif 'demographic_config' in scenario:
+        params['demographic_config'] = scenario['demographic_config']
+    
+    # Validate if requested
+    if validate:
+        params = validate_scenario_params(params, strict=False)
+    
+    return params
+
+## ===========================================================================
+## Validation Functions for scenario parameters
+## ===========================================================================
+def validate_age_params(age_params: List[Dict]) -> bool:
+    """
+    Validate that age parameter dictionaries contain all required keys.
+    
+    Returns True if valid, raises ValueError with details if not.
+    """
+    required_keys = {
+        'alpha', 'sigma', 'eta', 'eta_icu',
+        'gamma_I', 'gamma_X', 'gamma_ward', 'gamma_icu',
+        'mu_I', 'mu_X', 'mu_ward', 'mu_icu',
+    }
+    
+    for i, params in enumerate(age_params):
+        missing = required_keys - set(params.keys())
+        if missing:
+            age_label = AGE_LABELS_SHORT[i] if i < len(AGE_LABELS_SHORT) else f"Age group {i}"
+            raise ValueError(f"{age_label} params missing keys: {missing}")
+    
+    return True
 
 def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dict[str, Any]:
     """
@@ -362,7 +435,6 @@ def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dic
     
     return validated
 
-
 def apply_vaccine_profile_to_params(params: Dict[str, Any], profile_name: str) -> Dict[str, Any]:
     """
     Internal helper to apply a vaccine profile to scenario parameters.
@@ -391,127 +463,11 @@ def apply_vaccine_profile_to_params(params: Dict[str, Any], profile_name: str) -
     
     return params
 
-
 # ============================================================================
 # SECTION 17: MASTER MODEL HELPER FUNCTIONS
 # ============================================================================
 # Functions for running comparisons, parameter sweeps, and scenario analysis
 # using the master_hospital_model.
-
-def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, Any]:
-    """
-    Extract parameters from a scenario bundle for simulate_master_hospital_model().
-    
-    - Applies vaccine profiles from three-factor model
-    - Handles vaccination_rate for dynamic vaccination
-    - Validates parameters before returning
-    
-    Args:
-        scenario_name: Key from SCENARIO_REGISTRY
-        validate: If True, run validation on extracted params
-        
-    Returns:
-        Dictionary ready to unpack into simulate_master_hospital_model(**params)
-    """
-    if scenario_name not in SCENARIO_REGISTRY:
-        available = list(SCENARIO_REGISTRY.keys())
-        raise ValueError(f"Unknown scenario '{scenario_name}'. Available: {available}")
-    
-    scenario = deepcopy(SCENARIO_REGISTRY[scenario_name])
-    healthcare = scenario.pop('healthcare_system')
-    vaccination = scenario.pop('vaccination')
-    seasonal = scenario.pop('seasonal_params', {})
-    waning = scenario.pop('waning_params', {})
-    vaccine_profile = scenario.pop('vaccine_profile', None)
-    
-    # Handle vaccination - can be dict with 'coverage' key or direct list
-    if isinstance(vaccination, dict):
-        coverage = vaccination.get('coverage', [0.0, 0.0, 0.0])
-    else:
-        coverage = vaccination
-    
-    # Build parameter dict with nested configs
-    params = {
-        'beta_base': scenario['beta_base'],
-        'age_params': scenario['age_params'],
-        'contact_matrix': scenario.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
-        'age_pops': healthcare['age_pops'],
-        'sim_config': {
-            'Tmax': scenario.get('Tmax', 200),
-        },
-        'capacity_config': {
-            'ward_capacity': healthcare['ward_capacity'],
-            'icu_capacity': healthcare['icu_capacity'],
-            'hill_coef_ward': healthcare.get('hill_coef_ward', 4),
-            'hill_coef_icu': healthcare.get('hill_coef_icu', 4),
-            'theta_X': DEFAULT_SIM_PARAMS.get('theta_X', 0.5),
-            'theta_H': DEFAULT_SIM_PARAMS.get('theta_H', 0.3),
-        },
-        'vaccine_config': {
-            'coverage': coverage,
-        },
-        'intervention_config': scenario.get('interventions', []),
-    }
-    
-    # Apply vaccine profile if specified (three-factor model)
-    if vaccine_profile is not None:
-        params = apply_vaccine_profile_to_params(params, vaccine_profile)
-    
-    # Handle dynamic vaccination rate
-    if 'vaccination_rate' in scenario:
-        params['vaccine_config']['vaccination_rate'] = scenario['vaccination_rate']
-    
-    # Handle vaccine waning params from scenario
-    if 'vaccine_waning_params' in scenario:
-        if 'vaccine_waning_config' not in params:
-            params['vaccine_waning_config'] = {}
-        params['vaccine_waning_config'].update(scenario['vaccine_waning_params'])
-    
-    # Add seasonal parameters
-    if seasonal and seasonal.get('amplitude', 0) > 0:
-        params['seasonal_config'] = {
-            'amplitude': seasonal['amplitude'],
-            'period': seasonal.get('period', 365),
-            'peak_day': seasonal.get('peak_day', 0),
-        }
-    
-    # Add waning immunity
-    if waning:
-        omega = waning.get('omega', 0.0)
-        if omega > 0:
-            params['waning_config'] = {'omega': omega}
-        elif 'omega_young' in waning:
-            params['waning_config'] = {
-                'omega_young': waning['omega_young'],
-                'omega_middle': waning['omega_middle'],
-                'omega_elderly': waning['omega_elderly'],
-            }
-    
-    # Add initial conditions if specified
-    if 'initial_conditions' in scenario:
-        ic = scenario['initial_conditions']
-        if 'E_by_age' in ic:
-            params['initial_conditions'] = params.get('initial_conditions', {})
-            params['initial_conditions']['E_by_age'] = ic['E_by_age']
-        if 'I_by_age' in ic:
-            params['initial_conditions'] = params.get('initial_conditions', {})
-            params['initial_conditions']['I_by_age'] = ic['I_by_age']
-        if 'R_by_age' in ic:
-            params['initial_conditions'] = params.get('initial_conditions', {})
-            params['initial_conditions']['R_by_age'] = ic['R_by_age']
-            
-    # Handle demographic config
-    if 'demographic_params' in scenario:
-        params['demographic_config'] = scenario['demographic_params']
-    elif 'demographic_config' in scenario:
-        params['demographic_config'] = scenario['demographic_config']
-    
-    # Validate if requested
-    if validate:
-        params = validate_scenario_params(params, strict=False)
-    
-    return params
-
 
 def run_scenario_with_overrides(
     scenario_name: str,
@@ -555,7 +511,6 @@ def run_scenario_with_overrides(
     
     return params
 
-
 def compare_vaccine_profiles(
     base_scenario: str,
     profile_names: Optional[List[str]] = None,
@@ -598,7 +553,6 @@ def compare_vaccine_profiles(
     
     return results
 
-
 def compare_healthcare_systems(
     base_scenario: str,
     system_names: Optional[List[str]] = None
@@ -637,7 +591,6 @@ def compare_healthcare_systems(
         results[sys_name] = validate_scenario_params(params, strict=False)
     
     return results
-
 
 def create_sensitivity_variants(
     base_scenario: str,
@@ -693,7 +646,6 @@ def create_sensitivity_variants(
     
     return results
 
-
 def create_intervention_comparison(
     base_scenario: str,
     intervention_sets: Dict[str, List[Dict]]
@@ -726,11 +678,48 @@ def create_intervention_comparison(
     
     return results
 
-
-def get_all_scenario_names() -> List[str]:
-    """Return all available scenario names, sorted alphabetically."""
-    return sorted(list(SCENARIO_REGISTRY.keys()))
-
+def create_custom_scenario(
+    name: str,
+    beta_base: float,
+    healthcare_system: Dict,
+    vaccination_coverage: List[float],
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Create a custom scenario configuration.
+    
+    Args:
+        name: Scenario name
+        beta_base: Baseline transmission rate
+        healthcare_system: Healthcare system config dict
+        vaccination_coverage: [young, middle, elderly] coverage rates
+        **kwargs: Additional parameters (age_params, interventions, etc.)
+        
+    Returns:
+        Scenario configuration dictionary
+    """
+    scenario = {
+        'name': name,
+        'description': kwargs.get('description', f'Custom scenario: {name}'),
+        'beta_base': beta_base,
+        'age_params': kwargs.get('age_params', AGE_PARAMS_DEFAULT),
+        'contact_matrix': kwargs.get('contact_matrix', CONTACT_MATRIX_DEFAULT),
+        'healthcare_system': healthcare_system,
+        'seasonal_params': kwargs.get('seasonal_params', SEASONAL_PARAMS_NONE),
+        'waning_params': kwargs.get('waning_params', WANING_NONE),
+        'interventions': kwargs.get('interventions', INTERVENTION_NONE),
+        'vaccination': {
+            'coverage': vaccination_coverage,
+            'description': 'Custom coverage',
+        },
+        'VE': kwargs.get('VE', 0.7),
+        'Tmax': kwargs.get('Tmax', 200),
+    }
+    
+    if 'initial_conditions' in kwargs:
+        scenario['initial_conditions'] = kwargs['initial_conditions']
+    
+    return scenario
 
 def summarize_scenarios() -> str:
     """Return a formatted summary of all available scenarios."""

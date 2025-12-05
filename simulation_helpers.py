@@ -1,3 +1,15 @@
+"""
+Various helper functions for the main simulation.
+- Demographic processes (births and background mortality computations)
+- Validation of demographic parameters and age-structured inputs
+- Hill gate functions for hospital capacity
+- Pack and unpack state vector functions for ode solvers
+- Derivative function components for ODE solvers
+- Computation of force of infection
+- Computation of compartment derivatives
+- Some utility functions for initial conditions and parameter validation
+"""
+
 import warnings
 import numpy as np
 from time_varying_helpers import seasonal_forcing, policy_multiplier
@@ -36,8 +48,8 @@ def compute_birth_rate(total_live_pop, birth_rate, age_pops, birth_age_distribut
     
     Notes
     -----
-    Total births = birth_rate × total_live_pop
-    Births per age group = total_births × birth_age_distribution
+    Total births = birth_rate x total_live_pop
+    Births per age group = total_births x birth_age_distribution
     
     The model assumes births enter the S (unvaccinated susceptible) compartment.
     For neonatal vaccination, use the neonatal_vaccination_rate parameter in
@@ -73,7 +85,7 @@ def compute_background_death_rate(compartment_pop, mu_background):
         Current population in compartment by age group.
     mu_background : np.ndarray
         Age-specific background mortality rate (deaths per person per day).
-        Typical values: [0.00001, 0.00005, 0.0003] for young, middle, elderly.
+        Examples of some typical values: [0.00001, 0.00005, 0.0003] for young, middle, elderly.
     
     Returns
     -------
@@ -593,10 +605,10 @@ def compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, l
     mu_X = np.array([ap['mu_X'] for ap in age_params])
     
     # Ward/ICU parameters with fallbacks
-    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
-    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
-    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
-    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
+    gamma_ward = np.array([ap.get('gamma_ward') or ap.get('gamma_H') or 0.2 for ap in age_params])
+    mu_ward = np.array([ap.get('mu_ward') or (ap.get('mu_H') or 0.02) * 0.5 for ap in age_params])
+    gamma_icu = np.array([ap.get('gamma_icu') or (ap.get('gamma_H') or 0.2) * 0.6 for ap in age_params])
+    mu_icu = np.array([ap.get('mu_icu') or (ap.get('mu_H') or 0.02) * 2.0 for ap in age_params])
     
     # Differential mortality parameters
     age_keys = ['young', 'middle', 'elderly']
@@ -676,7 +688,7 @@ def compute_unvax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, l
         'dX_queued': dX_queued, 'dX_admitted': dX_admitted,
         'dH_ward': dH_ward, 'dH_icu': dH_icu, 'dR': dR, 'dD': dD,
         'dD_treated': dD_treated, 'dD_untreated': dD_untreated,
-        'new_exposed_vax_for_tracking': None  # Placeholder, will be filled by vax function
+        # 'new_exposed_vax_for_tracking': None  # Placeholder, will be filled by vax function
     }
 
 
@@ -759,10 +771,10 @@ def compute_vax_derivatives(state: Dict[str, np.ndarray], params: ODEParams, lam
     mu_X = np.array([ap['mu_X'] for ap in age_params])
     
     # Ward/ICU parameters with fallbacks
-    gamma_ward = np.array([ap.get('gamma_ward', ap.get('gamma_H', 0.2)) for ap in age_params])
-    mu_ward = np.array([ap.get('mu_ward', ap.get('mu_H', 0.02) * 0.5) for ap in age_params])
-    gamma_icu = np.array([ap.get('gamma_icu', ap.get('gamma_H', 0.2) * 0.6) for ap in age_params])
-    mu_icu = np.array([ap.get('mu_icu', ap.get('mu_H', 0.02) * 2.0) for ap in age_params])
+    gamma_ward = np.array([ap.get('gamma_ward') or ap.get('gamma_H') or 0.2 for ap in age_params])
+    mu_ward = np.array([ap.get('mu_ward') or (ap.get('mu_H') or 0.02) * 0.5 for ap in age_params])
+    gamma_icu = np.array([ap.get('gamma_icu') or (ap.get('gamma_H') or 0.2) * 0.6 for ap in age_params])
+    mu_icu = np.array([ap.get('mu_icu') or (ap.get('mu_H') or 0.02) * 2.0 for ap in age_params])
     
     # Differential mortality parameters
     age_keys = ['young', 'middle', 'elderly']
@@ -906,7 +918,7 @@ def master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
     n_ward = params['n_ward']
     n_icu = params['n_icu']
     seasonal_params = params['seasonal_params']
-    interventions = params['interventions']
+    interventions = params.get('interventions', [])
     vaccination_rate = params['vaccination_rate']
     
     # Extract demographic parameters
@@ -924,7 +936,8 @@ def master_deriv(y: np.ndarray, t: float, params: ODEParams) -> np.ndarray:
         t, 1.0,
         amplitude=seasonal_params.get('amplitude', 0.0),
         period=seasonal_params.get('period', 365),
-        peak_day=seasonal_params.get('peak_day', 0)
+        peak_day=seasonal_params.get('peak_day', 0),
+        
     )
     policy_mult = policy_multiplier(t, interventions)
     beta_t = beta_base * seasonal_factor * policy_mult

@@ -1,16 +1,16 @@
 """
 Time-varying extensions for our model.
-This module provides helper functions for adding various time-varying transmission rates including:
-- Seasonality
-- Policy interventions (lockdowns/relaxations)
-- Waning immunity
+This file has helper functions for adding various time-varying transmission rates including:
+- Seasonality (sinusoidal variation)
+- Policy interventions (lockdowns/relaxations at specific times 
+            that modify transmission rates by a simple multiplier)
 """
 
 import numpy as np
 
-# ========================================
+# ==============================================
 # Helper Functions for Time-Varying Parameters
-# ========================================
+# ==============================================
 
 def seasonal_forcing(t, beta_base, amplitude=0.3, period=365, peak_day=0):
     """
@@ -66,7 +66,7 @@ def policy_multiplier(t, interventions):
     if not interventions:
         return 1.0
     
-    # find strongest active intervention
+    # find strongest active intervention and get its reduction value
     max_reduction = 0.0
     for intervention in interventions:
         reduction = intervention['transmission_reduction']
@@ -75,6 +75,4 @@ def policy_multiplier(t, interventions):
         if intervention['start_day'] <= t <= intervention['end_day']:
             max_reduction = max(max_reduction, reduction)
     
-    return 1.0 - max_reduction
-
-## add waning immunity function here
+    return 1.0 - max_reduction # subtract that shit from beta_base

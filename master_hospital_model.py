@@ -558,7 +558,7 @@ def simulate_master_hospital_model(
     # ========================================
     # Build ODE Parameters Dictionary
     # ========================================
-    ode_params: ODEParams = {
+    ode_params = {
         'n_ages': n_ages,
         'beta_base': beta_base,
         'contact_matrix': np.asarray(contact_matrix),
@@ -583,6 +583,9 @@ def simulate_master_hospital_model(
         'dm_params': config.DIFFERENTIAL_MORTALITY_PARAMS,
         'demographic_params': validated_demo_params,
     }
+        
+    # Convert ode_params dict to the typed ODEParams dataclass expected by ResultProcessor
+    ode_params_obj = ODEParams(**ode_params)
     
     # ========================================
     # Pack Initial State
@@ -671,11 +674,13 @@ def simulate_master_hospital_model(
     # Process Results
     # ========================================
     from result_processor import ResultProcessor
-    
+
+
+
     processor = ResultProcessor(
         solution=solution,
         times=list(t_eval),
-        ode_params=ode_params,
+        ode_params=ode_params_obj,
         coverage=coverage,
         vaccination_rate=vaccination_rate,
         vaccine_waning_params=vaccine_waning_params,

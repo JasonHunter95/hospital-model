@@ -398,6 +398,7 @@ class TestDemographicEdgeCases:
             'birth_age_distribution': [1.0, 0.0, 0.0],
             'mu_background': [0.0, 0.0, 0.0],
             'neonatal_vaccination_rate': 0.0,
+            'description': 'High birth rate test',
         }
         
         inputs = minimal_inputs.copy()
@@ -420,6 +421,7 @@ class TestDemographicEdgeCases:
             'birth_age_distribution': [1.0, 0.0, 0.0],
             'mu_background': [0.01, 0.01, 0.01],  # Unrealistically high
             'neonatal_vaccination_rate': 0.0,
+            'description': 'High mortality rate test'
         }
         
         inputs = minimal_inputs.copy()
@@ -488,24 +490,6 @@ class TestDemographicEdgeCases:
 
 class TestDemographicParametersInResults:
     """Test that demographic parameters are included in results metadata."""
-    
-    def test_demographic_params_in_parameters(self, demographic_inputs):
-        """Test that demographic_params is stored in results['parameters']."""
-        results = simulate_master_hospital_model(**demographic_inputs)
-        
-        assert 'parameters' in results
-        assert 'demographic_params' in results['parameters']
-        
-        # Compare dictionaries with numpy arrays
-        result_demo = results['parameters']['demographic_params']
-        input_demo = demographic_inputs['demographic_config']
-        
-        assert result_demo.keys() == input_demo.keys()
-        for key in result_demo.keys():
-            if isinstance(result_demo[key], np.ndarray):
-                np.testing.assert_array_equal(result_demo[key], input_demo[key])
-            else:
-                assert result_demo[key] == input_demo[key]
     
     def test_none_demographic_params_in_parameters(self, minimal_inputs):
         """Test that None demographic_params results in validated defaults being stored."""

@@ -27,7 +27,7 @@ Usage:
 """
 
 import numpy as np
-from typing import List, Dict, Optional
+from typing import List, Optional
 from model_types import (
     SimParams,
     CapacityParams,
@@ -67,7 +67,7 @@ AGE_POPS_DEFAULT = [3000, 5000, 2000]  # Original default (10,000 total)
 
 
 # ============================================================================
-# SECTION 1B: THREE-FACTOR VACCINE MODEL PARAMETERS
+# SECTION 1.1: THREE-FACTOR VACCINE MODEL PARAMETERS
 # ============================================================================
 # Three-factor vaccine model separates efficacy into:
 # - VE_infection: Efficacy against infection (reduces susceptibility/force of infection)
@@ -244,6 +244,7 @@ YOUNG_PARAMS_EMPIRICAL: AgeParams = {
     'gamma_I': 0.14,          # ~7 day infectious period
     'gamma_X': 0.2,           # ~5 day severe phase (recovery from X)
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted (~2 day wait if capacity available)
+    'gamma_H': 0.2,           # optional override for hospital recovery rate
     'gamma_ward': 0.2,        # ~5 day ward stay
     'gamma_icu': 0.1,         # ~10 day ICU stay
     
@@ -251,6 +252,7 @@ YOUNG_PARAMS_EMPIRICAL: AgeParams = {
     'mu_I': 0.0001,           # near-zero community mortality
     'mu_X': 0.002,            # 0.2% if severe and admitted (treated)
     'mu_X_untreated': 0.006,  # 0.6% if queued/untreated (3x treated rate)
+    'mu_H': 0.005,            # optional override for hospital mortality
     'mu_ward': 0.001,         # 0.1% ward mortality
     'mu_ward_denied_icu': 0.02,  # 2% if ICU denied
     'mu_icu': 0.005,          # 0.5% ICU mortality
@@ -264,11 +266,13 @@ MIDDLE_PARAMS_EMPIRICAL: AgeParams = {
     'gamma_I': 0.12,          # ~8 day infectious period
     'gamma_X': 0.15,          # ~7 day severe phase
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
+    'gamma_H': 0.15,          # optional override for hospital recovery rate
     'gamma_ward': 0.14,       # ~7 day ward stay
     'gamma_icu': 0.08,        # ~12 day ICU stay
     'mu_I': 0.001,
     'mu_X': 0.008,            # treated mortality
     'mu_X_untreated': 0.024,  # 3x when untreated
+    'mu_H': 0.02,             # optional override for hospital mortality
     'mu_ward': 0.005,
     'mu_ward_denied_icu': 0.06,
     'mu_icu': 0.02
@@ -282,11 +286,13 @@ ELDERLY_PARAMS_EMPIRICAL: AgeParams = {
     'gamma_I': 0.10,          # ~10 day infectious period
     'gamma_X': 0.10,          # ~10 day severe phase
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
+    'gamma_H': 0.10,          # optional override for hospital recovery rate
     'gamma_ward': 0.10,       # ~10 day ward stay
     'gamma_icu': 0.05,        # ~20 day ICU stay
     'mu_I': 0.005,
     'mu_X': 0.025,            # treated mortality
     'mu_X_untreated': 0.10,   # 4x when untreated
+    'mu_H': 0.05,             # optional override for hospital mortality
     'mu_ward': 0.015,
     'mu_ward_denied_icu': 0.12,
     'mu_icu': 0.04
@@ -307,11 +313,13 @@ YOUNG_PARAMS_TEACHING: AgeParams = {
     'gamma_I': 0.12,
     'gamma_X': 0.18,
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
+    'gamma_H': 0.2,           # optional override for hospital recovery rate
     'gamma_ward': 0.25,
     'gamma_icu': 0.15,
     'mu_I': 0.001,
     'mu_X': 0.01,             # treated mortality
     'mu_X_untreated': 0.015,  # untreated mortality
+    'mu_H' : 0.02,            # optional override for hospital mortality
     'mu_ward': 0.003,
     'mu_ward_denied_icu': 0.025,
     'mu_icu': 0.008
@@ -325,11 +333,13 @@ MIDDLE_PARAMS_TEACHING: AgeParams = {
     'gamma_I': 0.1,
     'gamma_X': 0.15,
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
+    'gamma_H': 0.18,          # optional override for hospital recovery rate
     'gamma_ward': 0.2,
     'gamma_icu': 0.12,
     'mu_I': 0.01,
     'mu_X': 0.02,             # treated mortality
     'mu_X_untreated': 0.06,   # untreated mortality
+    'mu_H': 0.02,             # optional override for hospital mortality
     'mu_ward': 0.01,
     'mu_ward_denied_icu': 0.12,
     'mu_icu': 0.04
@@ -343,11 +353,13 @@ ELDERLY_PARAMS_TEACHING: AgeParams = {
     'gamma_I': 0.08,
     'gamma_X': 0.12,
     'gamma_X_admit': 0.5,     # admission rate from X_queued to X_admitted
+    'gamma_H': 0.10,          # optional override for hospital recovery rate
     'gamma_ward': 0.15,
     'gamma_icu': 0.08,
     'mu_I': 0.03,
     'mu_X': 0.15,             # treated mortality
     'mu_X_untreated': 0.45,   # untreated mortality
+    'mu_H': 0.08,             # optional override for hospital mortality
     'mu_ward': 0.04,
     'mu_ward_denied_icu': 0.35,
     'mu_icu': 0.12
@@ -730,6 +742,7 @@ DEMOGRAPHIC_PARAMS_DEFAULT: DemographicParams = {
     # Optional: neonatal vaccination rate (fraction of newborns vaccinated)
     # If > 0, births are split between S and S_vax
     'neonatal_vaccination_rate': 0.0,
+    'description': 'Default global average demographics',
 }
 
 # High-income country demographics (lower birth/death rates)
