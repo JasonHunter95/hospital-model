@@ -1,0 +1,11 @@
+numpy
+scipy
+sympy
+pytest
+pytest-xdist
+pytest-cov
+matplotlib
+manim
+jupyter
+pandas
+seaborn

@@ -18,6 +18,7 @@ import pytest
 import sympy as sp
 from sympy import Symbol, symbols, simplify, expand, Eq, cos, pi
 import numpy as np
+from capacity_helpers import hill_gate
 
 
 # =============================================================================
@@ -1097,8 +1098,6 @@ class TestNumericalVerification:
         """
         Verify hill_gate() function matches symbolic formula.
         """
-        from capacity import hill_gate
-        
         H_sym = Symbol('H', nonnegative=True)
         K_sym = Symbol('K', positive=True)
         n_sym = Symbol('n', positive=True)

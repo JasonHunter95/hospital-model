@@ -30,7 +30,7 @@ from config import (
 
 @pytest.fixture
 def minimal_inputs():
-    """Minimal valid inputs for simulate_master_hospital_model."""
+    """Minimal valid inputs for simulate_model."""
     return {
         'beta_base': 0.3,
         'age_params': AGE_PARAMS_DEFAULT,
@@ -247,7 +247,7 @@ def long_simulation_inputs(minimal_inputs):
 
 @pytest.fixture
 def config_defaults():
-    """Access to all config defaults for testing."""
+    """Access to all scenarios defaults for testing."""
     return {
         'sim_params': DEFAULT_SIM_PARAMS,
         'capacity_params': DEFAULT_CAPACITY_PARAMS,

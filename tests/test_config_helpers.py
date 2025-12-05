@@ -39,6 +39,7 @@ from config_helpers import (
     get_vaccine_profile,
 )
 from config import SCENARIO_REGISTRY, AGE_PARAMS_DEFAULT, AGE_PARAMS_EMPIRICAL
+from simulate_model import simulate_model
 
 
 # =============================================================================
@@ -364,9 +365,7 @@ class TestCompareVaccineProfiles:
         assert len(result) >= len(profiles)
     
     def test_each_variant_is_runnable(self):
-        """Each variant should be runnable params dict."""
-        from master_hospital_model import simulate_master_hospital_model
-        
+        """Each variant should be runnable params dict."""        
         profiles = list_vaccine_profiles()[:2]
         if len(profiles) < 2:
             pytest.skip("Need at least 2 vaccine profiles")
@@ -375,7 +374,7 @@ class TestCompareVaccineProfiles:
         
         for name, params in list(variants.items())[:1]:  # Test first only (speed)
             params['sim_config']['Tmax'] = 10  # Short simulation
-            result = simulate_master_hospital_model(**params)
+            result = simulate_model(**params)
             assert 'times' in result
 
 
@@ -437,15 +436,13 @@ class TestCreateSensitivityVariants:
             assert params.get('beta_base') in values
     
     def test_variants_are_runnable(self):
-        """Each variant should be runnable."""
-        from master_hospital_model import simulate_master_hospital_model
-        
+        """Each variant should be runnable."""        
         values = [0.2, 0.3]
         variants = create_sensitivity_variants('baseline', 'beta_base', values)
         
         for name, params in list(variants.items())[:1]:  # Test first only
             params['sim_config']['Tmax'] = 10
-            result = simulate_master_hospital_model(**params)
+            result = simulate_model(**params)
             assert 'times' in result
 
 

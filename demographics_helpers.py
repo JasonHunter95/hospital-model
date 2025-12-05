@@ -48,7 +48,7 @@ def compute_birth_rate(
     
     The model assumes births enter the S (unvaccinated susceptible) compartment.
     For neonatal vaccination, use the neonatal_vaccination_rate parameter in
-    simulate_master_hospital_model() to route a fraction of births to S_vax.
+    simulate_model() to route a fraction of births to S_vax.
     """
     n_ages = len(age_pops)
     

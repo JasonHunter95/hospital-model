@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from master_hospital_model import simulate_master_hospital_model
+    from master_hospital_model import simulate_model
     from config_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
@@ -18,7 +18,7 @@ try:
 except ImportError:
     # fallback for when running from different contexts
     sys.path.append("..")
-    from master_hospital_model import simulate_master_hospital_model
+    from master_hospital_model import simulate_model
     from config_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
@@ -51,7 +51,7 @@ class ModelData:
         else:
             self.params['sim_config'] = {'Tmax': 100}
         
-        self.results = simulate_master_hospital_model(**self.params)
+        self.results = simulate_model(**self.params)
         
         # store capacity values for drawing in the animation
         capacity_config = self.params.get('capacity_config', {})
@@ -135,7 +135,7 @@ class ComparisonData:
                 params_copy['sim_config'] = {**params_copy['sim_config'], 'Tmax': Tmax}
             else:
                 params_copy['sim_config'] = {'Tmax': Tmax}
-            raw_results = simulate_master_hospital_model(**params_copy)
+            raw_results = simulate_model(**params_copy)
             self.results[name] = _compute_totals(raw_results)
         
         first_name = self.scenario_names[0]

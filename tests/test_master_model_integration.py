@@ -1,5 +1,5 @@
 """
-Integration tests for simulate_master_hospital_model.
+Integration tests for simulate_model.
 
 Tests cover:
 - Smoke tests (function runs, returns expected structure)
@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 from config import (
     DEFAULT_SIM_PARAMS,
     DEFAULT_CAPACITY_PARAMS,
@@ -45,7 +45,7 @@ class TestSmoke:
         - Returns a non-None result
         - Result is a dictionary containing simulation outputs
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert results is not None
         assert isinstance(results, dict)
     
@@ -57,7 +57,7 @@ class TestSmoke:
         as a dictionary for easy access to different output components (compartments,
         time series, metadata, etc.).
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert isinstance(results, dict)
     
     def test_times_array_present(self, minimal_inputs):
@@ -72,7 +72,7 @@ class TestSmoke:
         - 'times' key exists in results dictionary
         - 'times' array contains at least one time point
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'times' in results
         assert len(results['times']) > 0
     
@@ -93,7 +93,7 @@ class TestSmoke:
         
         All of these compartments must be present for the model to be complete.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         required_keys = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D', 'H']
         for key in required_keys:
             assert key in results, f"Missing key: {key}"
@@ -110,7 +110,7 @@ class TestSmoke:
         
         Each total represents the sum across all age groups for that compartment.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         required_keys = [
             'H_ward_total', 'H_icu_total', 'H_total',
             'E_total', 'I_total', 'X_total', 'D_total'
@@ -133,7 +133,7 @@ class TestSmoke:
         These metrics are critical for assessing healthcare system resilience
         and the impact of capacity constraints on patient outcomes.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         required_keys = [
             'ward_overflow', 'icu_overflow',
             'cum_ward_overflow', 'cum_icu_overflow',
@@ -155,7 +155,7 @@ class TestSmoke:
         at each point in the simulation, which is essential for understanding
         how interventions and seasonality affect epidemic dynamics.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         required_keys = ['beta_t', 'seasonal_factor', 'policy_mult']
         for key in required_keys:
             assert key in results, f"Missing key: {key}"
@@ -175,7 +175,7 @@ class TestSmoke:
         - Interpretation (understanding capacity constraints)
         - Comparison (ensuring consistent parameters across runs)
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'ward_capacity' in results
         assert 'icu_capacity' in results
         assert 'age_pops' in results
@@ -200,7 +200,7 @@ class TestOutputStructure:
         This is a structural invariant: if age dimensions are wrong, all
         downstream analysis will fail or produce incorrect results.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         for compartment in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
             assert len(results[compartment]) == n_ages
     
@@ -215,7 +215,7 @@ class TestOutputStructure:
         Mismatched lengths would indicate a bug in the ODE solver integration
         or the output collection logic.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         n_times = len(results['times'])
         for compartment in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
             for age_series in results[compartment]:
@@ -229,7 +229,7 @@ class TestOutputStructure:
         same temporal resolution as the individual compartments. This ensures
         consistency between age-stratified and aggregated views of the data.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         n_times = len(results['times'])
         for key in ['H_ward_total', 'H_icu_total', 'H_total', 'D_total']:
             assert len(results[key]) == n_times
@@ -245,7 +245,7 @@ class TestOutputStructure:
         
         Violations would indicate a serious bug in the solver or time step logic.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         times = results['times']
         for i in range(1, len(times)):
             assert times[i] > times[i-1]
@@ -257,7 +257,7 @@ class TestOutputStructure:
         By convention, all simulations start at t=0. This provides a consistent
         reference point for interpreting results and comparing across scenarios.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert results['times'][0] == 0
     
     def test_times_end_near_tmax(self, minimal_inputs):
@@ -271,7 +271,7 @@ class TestOutputStructure:
         This ensures the simulation runs for the full requested duration.
         """
         inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100, 'time_step': 0.1}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         # Allow small floating point tolerance
         assert results['times'][-1] >= 100 - 0.1
     
@@ -287,7 +287,7 @@ class TestOutputStructure:
         
         Violations would indicate a bug in the aggregation logic.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         for a in range(n_ages):
             for t in range(len(results['times'])):
@@ -321,7 +321,7 @@ class TestPopulationConservation:
         Note: A small tolerance (1%) is allowed for numerical integration errors
         that accumulate over time with the Euler method.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         total_pop = sum(minimal_inputs['age_pops'])
         n_ages = len(minimal_inputs['age_pops'])
         
@@ -355,7 +355,7 @@ class TestPopulationConservation:
         
         For each age group a: S_a + E_a + I_a + X_a + H_a + R_a + D_a = N_a (constant)
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         
         for a in range(n_ages):
@@ -389,7 +389,7 @@ class TestPopulationConservation:
         If this test fails but shorter simulations pass, it indicates numerical
         instability that may require smaller time steps or a higher-order integrator.
         """
-        results = simulate_master_hospital_model(**long_simulation_inputs)
+        results = simulate_model(**long_simulation_inputs)
         total_pop = sum(long_simulation_inputs['age_pops'])
         n_ages = len(long_simulation_inputs['age_pops'])
         
@@ -434,7 +434,7 @@ class TestDeathMonotonicity:
         A small tolerance (1e-10) allows for floating-point rounding errors
         while still catching any real violations of monotonicity.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         D_total = results['D_total']
         
         for i in range(1, len(D_total)):
@@ -456,7 +456,7 @@ class TestDeathMonotonicity:
         
         For each age group a: D_a(t+1) >= D_a(t)
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         n_ages = len(minimal_inputs['age_pops'])
         
         for a in range(n_ages):
@@ -478,7 +478,7 @@ class TestDeathMonotonicity:
         This compartment must also be monotonically increasing, as it's a
         cumulative tracker of a specific subset of deaths.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         D_treated = results['D_treated_total']
         
         for i in range(1, len(D_treated)):
@@ -499,7 +499,7 @@ class TestDeathMonotonicity:
         dynamics of the model, as untreated deaths only occur when the system
         is overwhelmed.
         """
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         D_untreated = results['D_untreated_total']
         
         for i in range(1, len(D_untreated)):
@@ -515,14 +515,14 @@ class TestDefaultParameters:
     
     def test_uses_default_tmax(self, minimal_inputs):
         """Should use default Tmax when not specified."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         expected_tmax = DEFAULT_SIM_PARAMS['Tmax']
         # Allow small floating point tolerance
         assert results['times'][-1] >= expected_tmax - 0.1
     
     def test_uses_default_time_step(self, minimal_inputs):
         """Should use default time_step when not specified."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         times = results['times']
         expected_dt = DEFAULT_SIM_PARAMS['time_step']
         actual_dt = times[1] - times[0]
@@ -530,14 +530,14 @@ class TestDefaultParameters:
     
     def test_uses_default_capacity(self, minimal_inputs):
         """Should use default capacities when not specified."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert results['ward_capacity'] == DEFAULT_CAPACITY_PARAMS['ward_capacity']
         assert results['icu_capacity'] == DEFAULT_CAPACITY_PARAMS['icu_capacity']
     
     def test_custom_tmax_used(self, minimal_inputs):
         """Custom Tmax should be used when provided."""
         inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         # Allow small floating point tolerance
         assert results['times'][-1] >= 50 - 0.2
         assert results['times'][-1] < 60
@@ -545,7 +545,7 @@ class TestDefaultParameters:
     def test_custom_capacity_used(self, minimal_inputs):
         """Custom capacities should be used when provided."""
         inputs = {**minimal_inputs, 'capacity_config': {'ward_capacity': 150, 'icu_capacity': 40, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         assert results['ward_capacity'] == 150
         assert results['icu_capacity'] == 40
 
@@ -559,7 +559,7 @@ class TestNonNegativity:
     
     def test_all_compartments_non_negative(self, minimal_inputs):
         """All compartment values should be >= 0."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         compartments = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']
         n_ages = len(minimal_inputs['age_pops'])
         
@@ -570,7 +570,7 @@ class TestNonNegativity:
     
     def test_gating_factors_in_valid_range(self, minimal_inputs):
         """Gating factors should be in [0, 1]."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for g in results['g_ward']:
             assert 0 <= g <= 1
@@ -579,7 +579,7 @@ class TestNonNegativity:
     
     def test_beta_t_non_negative(self, minimal_inputs):
         """Time-varying beta should be non-negative."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         for beta in results['beta_t']:
             assert beta >= 0
 
@@ -613,7 +613,7 @@ class TestForceOfInfectionDirectionality:
             'D_by_age': [0, 0],
         }
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             beta_base=0.3,
             age_params=age_params,
             contact_matrix=contact_matrix,
@@ -638,13 +638,13 @@ class TestInputValidation:
         """age_pops should be required."""
         del minimal_inputs['age_pops']
         with pytest.raises(TypeError, match="age_pops"):
-            simulate_master_hospital_model(**minimal_inputs)
+            simulate_model(**minimal_inputs)
     
     def test_mismatched_dimensions_raises(self, minimal_inputs):
         """Mismatched age_params and age_pops should raise."""
         minimal_inputs['age_pops'] = [1000, 2000]  # Only 2 instead of 3
         with pytest.raises(ValueError):
-            simulate_master_hospital_model(**minimal_inputs)
+            simulate_model(**minimal_inputs)
 
 
 # ========================================
@@ -656,7 +656,7 @@ class TestDifferentialMortalityTracking:
     
     def test_differential_mortality_enabled_by_default(self, minimal_inputs):
         """Differential mortality tracking should be enabled by default."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'D_treated' in results
         assert 'D_untreated' in results
         assert 'D_treated_total' in results
@@ -665,13 +665,13 @@ class TestDifferentialMortalityTracking:
     def test_differential_mortality_can_be_disabled(self, minimal_inputs):
         """Differential mortality tracking can be disabled."""
         inputs = {**minimal_inputs, 'track_differential_mortality': False}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         assert 'D_treated' not in results
         assert 'D_untreated' not in results
     
     def test_d_treated_plus_d_untreated_equals_d_total(self, minimal_inputs):
         """D_treated + D_untreated should approximately equal D_total."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for t_idx in range(len(results['times'])):
             d_sum = results['D_treated_total'][t_idx] + results['D_untreated_total'][t_idx]
@@ -689,7 +689,7 @@ class TestCompartmentFlowTracking:
     
     def test_flow_tracking_disabled_by_default(self, minimal_inputs):
         """Compartment flow tracking should be disabled by default."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'new_infections' not in results
         assert 'ward_admissions' not in results
         assert 'icu_admissions' not in results
@@ -697,7 +697,7 @@ class TestCompartmentFlowTracking:
     def test_flow_tracking_can_be_enabled(self, minimal_inputs):
         """Compartment flow tracking can be enabled."""
         inputs = {**minimal_inputs, 'track_compartment_flows': True}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         assert 'new_infections' in results
         assert 'ward_admissions' in results
         assert 'icu_admissions' in results
@@ -705,7 +705,7 @@ class TestCompartmentFlowTracking:
     def test_flow_tracking_dimensions(self, minimal_inputs):
         """Flow tracking arrays should have correct dimensions."""
         inputs = {**minimal_inputs, 'track_compartment_flows': True}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         n_ages = len(minimal_inputs['age_pops'])
         n_times = len(results['times'])
         
@@ -724,7 +724,7 @@ class TestParametersMetadata:
     
     def test_parameters_dict_present(self, minimal_inputs):
         """Results should contain parameters dict."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'parameters' in results
         assert isinstance(results['parameters'], dict)
     
@@ -735,7 +735,7 @@ class TestParametersMetadata:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150},
             'vaccine_config': {'coverage': 0.5, 'VE_infection': 0.8, 'VE_severe': 0.8, 'VE_death': 0.8},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         assert results['parameters']['Tmax'] == 150
         # VE is stored separately as VE_infection, VE_severe, VE_death
@@ -743,7 +743,7 @@ class TestParametersMetadata:
     
     def test_parameters_contains_age_params(self, minimal_inputs):
         """Parameters dict should contain age_params."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'age_params' in results['parameters']
 
 # ========================================
@@ -829,7 +829,7 @@ class TestKitchenSink:
         }
         
         # 2. Run Simulation
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             beta_base=0.5, # High transmission to force dynamics
             age_params=minimal_inputs['age_params'],
             contact_matrix=minimal_inputs['contact_matrix'],

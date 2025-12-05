@@ -137,7 +137,7 @@ def get_vaccine_profile(profile_name: str) -> Dict[str, Any]:
         
     Example:
         profile = get_vaccine_profile('mrna_original')
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             ...,
             VE_infection=profile['VE_infection'],
             VE_severe=profile['VE_severe'],
@@ -156,11 +156,11 @@ def get_all_scenario_names() -> List[str]:
 
 ## ============================================================================
 ## This is a central function to extract and prepare scenario parameters for 
-## simulate_master_hospital_model()
+## simulate_model()
 ## ============================================================================
 def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, Any]:
     """
-    Extract parameters from a scenario bundle for simulate_master_hospital_model().
+    Extract parameters from a scenario bundle for simulate_model().
     
     - Applies vaccine profiles from three-factor model
     - Handles vaccination_rate for dynamic vaccination
@@ -171,7 +171,7 @@ def get_scenario_params(scenario_name: str, validate: bool = True) -> Dict[str, 
         validate: If True, run validation on extracted params
         
     Returns:
-        Dictionary ready to unpack into simulate_master_hospital_model(**params)
+        Dictionary ready to unpack into simulate_model(**params)
     """
     if scenario_name not in SCENARIO_REGISTRY:
         available = list(SCENARIO_REGISTRY.keys())
@@ -297,7 +297,7 @@ def validate_age_params(age_params: List[Dict]) -> bool:
 
 def validate_scenario_params(params: Dict[str, Any], strict: bool = True) -> Dict[str, Any]:
     """
-    Validate parameters for simulate_master_hospital_model() before simulation.
+    Validate parameters for simulate_model() before simulation.
     
     Checks for required parameters, valid ranges, and internal consistency.
     Returns validated params dict.
@@ -486,7 +486,7 @@ def run_scenario_with_overrides(
         validate: Whether to validate final parameters
         
     Returns:
-        Parameter dictionary ready for simulate_master_hospital_model()
+        Parameter dictionary ready for simulate_model()
         
     Example:
         # Run covid_delta with higher transmission
@@ -494,7 +494,7 @@ def run_scenario_with_overrides(
             'covid_delta',
             overrides={'beta_base': 0.5}
         )
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
     """
     params = get_scenario_params(scenario_name, validate=False)
     
@@ -531,7 +531,7 @@ def compare_vaccine_profiles(
         scenarios = compare_vaccine_profiles('covid_delta', 
                                              ['mrna_original', 'inactivated'])
         for name, params in scenarios.items():
-            results[name] = simulate_master_hospital_model(**params)
+            results[name] = simulate_model(**params)
     """
     if profile_names is None:
         profile_names = list_vaccine_profiles()

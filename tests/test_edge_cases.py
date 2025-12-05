@@ -1,5 +1,5 @@
 """
-Edge case and boundary tests for simulate_master_hospital_model.
+Edge case and boundary tests for simulate_model.
 
 Tests cover:
 - No initial infections (epidemic should not propagate)
@@ -18,7 +18,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 
 
 # ========================================
@@ -30,7 +30,7 @@ class TestNoInfection:
     
     def test_no_initial_infections_no_epidemic(self, no_infection_inputs):
         """With no initial infections, no epidemic should propagate."""
-        results = simulate_master_hospital_model(**no_infection_inputs)
+        results = simulate_model(**no_infection_inputs)
         
         # I should remain at zero throughout
         for a in range(len(no_infection_inputs['age_pops'])):
@@ -39,13 +39,13 @@ class TestNoInfection:
     
     def test_no_initial_infections_no_deaths(self, no_infection_inputs):
         """With no initial infections, there should be no deaths."""
-        results = simulate_master_hospital_model(**no_infection_inputs)
+        results = simulate_model(**no_infection_inputs)
         
         assert results['D_total'][-1] == pytest.approx(0, abs=1e-10)
     
     def test_no_initial_infections_s_unchanged(self, no_infection_inputs):
         """With no infections, S should remain at initial values."""
-        results = simulate_master_hospital_model(**no_infection_inputs)
+        results = simulate_model(**no_infection_inputs)
         
         for a in range(len(no_infection_inputs['age_pops'])):
             initial_S = no_infection_inputs['age_pops'][a]
@@ -62,7 +62,7 @@ class TestFullVaccination:
     
     def test_full_vaccination_minimal_spread(self, full_vaccination_inputs):
         """100% coverage with VE=1.0 should prevent all new infections."""
-        results = simulate_master_hospital_model(**full_vaccination_inputs)
+        results = simulate_model(**full_vaccination_inputs)
         
         # With perfect vaccine efficacy and full coverage,
         # effective beta should be 0, so no new infections beyond initial
@@ -74,18 +74,18 @@ class TestFullVaccination:
     
     def test_partial_vaccination_reduces_spread(self, partial_vaccination_inputs):
         """Partial vaccination should reduce but not eliminate spread."""
-        results_partial = simulate_master_hospital_model(**partial_vaccination_inputs)
+        results_partial = simulate_model(**partial_vaccination_inputs)
         
         # Compare to no vaccination
         inputs_no_vax = {**partial_vaccination_inputs, 'vaccine_config': {**partial_vaccination_inputs['vaccine_config'], 'coverage': 0.0}}
-        results_no_vax = simulate_master_hospital_model(**inputs_no_vax)
+        results_no_vax = simulate_model(**inputs_no_vax)
         
         # Vaccinated scenario should have fewer total deaths
         assert results_partial['D_total'][-1] < results_no_vax['D_total'][-1]
     
     def test_age_specific_coverage(self, partial_vaccination_inputs):
         """Age-specific coverage should be applied correctly."""
-        results = simulate_master_hospital_model(**partial_vaccination_inputs)
+        results = simulate_model(**partial_vaccination_inputs)
         
         # Elderly with higher coverage should have relatively fewer deaths per capita
         # This is a complex comparison due to other factors, so just verify it runs
@@ -102,28 +102,28 @@ class TestZeroCapacity:
     def test_zero_ward_capacity_raises_error(self, zero_capacity_inputs):
         """With zero ward capacity, should raise ValueError from hill_gate."""
         with pytest.raises(ValueError, match="capacity must be positive"):
-            simulate_master_hospital_model(**zero_capacity_inputs)
+            simulate_model(**zero_capacity_inputs)
     
     def test_zero_icu_capacity_raises_error(self, zero_capacity_inputs):
         """With zero ICU capacity, should raise ValueError from hill_gate."""
         with pytest.raises(ValueError, match="capacity must be positive"):
-            simulate_master_hospital_model(**zero_capacity_inputs)
+            simulate_model(**zero_capacity_inputs)
     
     def test_zero_capacity_validation(self, zero_capacity_inputs):
         """Zero capacity is now caught by input validation."""
         with pytest.raises(ValueError, match="capacity must be positive"):
-            simulate_master_hospital_model(**zero_capacity_inputs)
+            simulate_model(**zero_capacity_inputs)
     
     def test_low_capacity_high_overflow(self, low_capacity_inputs):
         """With very low capacity, overflow should occur."""
-        results = simulate_master_hospital_model(**low_capacity_inputs)
+        results = simulate_model(**low_capacity_inputs)
         
         # Should have non-zero cumulative overflow
         assert results['cum_ward_overflow'] > 0 or results['cum_icu_overflow'] >= 0
     
     def test_low_capacity_gating_applied(self, low_capacity_inputs):
         """With low capacity, gating factors should drop during peak."""
-        results = simulate_master_hospital_model(**low_capacity_inputs)
+        results = simulate_model(**low_capacity_inputs)
         
         # At some point, g_ward should be less than 1
         min_g_ward = min(results['g_ward'])
@@ -139,7 +139,7 @@ class TestHighCapacity:
     
     def test_high_capacity_no_overflow(self, high_capacity_inputs):
         """With very high capacity, there should be no overflow."""
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # No overflow should occur
         for overflow in results['ward_overflow']:
@@ -149,7 +149,7 @@ class TestHighCapacity:
     
     def test_high_capacity_gating_near_one(self, high_capacity_inputs):
         """With high capacity, gating factors should remain near 1."""
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # All gating factors should be very close to 1
         for g in results['g_ward']:
@@ -159,7 +159,7 @@ class TestHighCapacity:
     
     def test_high_capacity_minimal_untreated_deaths(self, high_capacity_inputs):
         """With high capacity, untreated deaths should be minimal."""
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # Untreated deaths should be very small
         # (Note: There might still be some due to X compartment baseline mortality)
@@ -175,12 +175,12 @@ class TestSingleAgeGroup:
     
     def test_single_age_group_runs(self, minimal_inputs_single_age):
         """Simulation should work with a single age group."""
-        results = simulate_master_hospital_model(**minimal_inputs_single_age)
+        results = simulate_model(**minimal_inputs_single_age)
         assert len(results['times']) > 0
     
     def test_single_age_group_compartments(self, minimal_inputs_single_age):
         """Single age group should have correct compartment structure."""
-        results = simulate_master_hospital_model(**minimal_inputs_single_age)
+        results = simulate_model(**minimal_inputs_single_age)
         
         # Should have 1 element in each age-indexed list
         assert len(results['S']) == 1
@@ -189,7 +189,7 @@ class TestSingleAgeGroup:
     
     def test_single_age_group_population_conservation(self, minimal_inputs_single_age):
         """Population conservation should hold for single age group."""
-        results = simulate_master_hospital_model(**minimal_inputs_single_age)
+        results = simulate_model(**minimal_inputs_single_age)
         total_pop = minimal_inputs_single_age['age_pops'][0]
         
         for t_idx in range(len(results['times'])):
@@ -222,7 +222,7 @@ class TestInitialConditions:
                 'E_by_age': [10, 10, 10],
             }
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Check initial values match
         assert results['I'][0][0] == pytest.approx(50)
@@ -241,7 +241,7 @@ class TestInitialConditions:
                 'H_icu_by_age': [1, 1, 1],
             }
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Verify initial hospitalization
         assert results['H_ward'][0][0] == pytest.approx(2)
@@ -255,7 +255,7 @@ class TestInitialConditions:
                 'I_by_age': [100, 50, 25],
             }
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # S[0] should be pop[0] - I[0] - E[0] - X[0] - H_ward[0] - H_icu[0] - R[0] - D[0]
         expected_S0 = inputs['age_pops'][0] - 100  # Only I is non-zero initially
@@ -272,7 +272,7 @@ class TestExtremeParameters:
     def test_very_high_beta(self, minimal_inputs):
         """Very high transmission rate should cause rapid epidemic."""
         inputs = {**minimal_inputs, 'beta_base': 2.0, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # With high beta, infections should peak quickly
         I_total = [sum(results['I'][a][t] for a in range(3)) for t in range(len(results['times']))]
@@ -284,17 +284,17 @@ class TestExtremeParameters:
     def test_very_low_beta(self, minimal_inputs):
         """Very low transmission rate should cause slow epidemic."""
         inputs = {**minimal_inputs, 'beta_base': 0.05, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Compare to high beta scenario - low beta should have fewer deaths
         inputs_high = {**minimal_inputs, 'beta_base': 0.5, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}}
-        results_high = simulate_master_hospital_model(**inputs_high)
+        results_high = simulate_model(**inputs_high)
         assert results['D_total'][-1] < results_high['D_total'][-1]
     
     def test_very_small_time_step(self, minimal_inputs):
         """Very small time step should give more accurate results."""
         inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'time_step': 0.01, 'Tmax': 20}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Should have more time points (20/0.01 = 2000, but may be 2000 or 2001)
         assert len(results['times']) >= 2000
@@ -302,7 +302,7 @@ class TestExtremeParameters:
     def test_large_time_step(self, minimal_inputs):
         """Large time step should still conserve population approximately."""
         inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'time_step': 1.0, 'Tmax': 100}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Population should still be approximately conserved
         total_pop = sum(minimal_inputs['age_pops'])
@@ -323,7 +323,7 @@ class TestExtremeParameters:
     def test_zero_beta_no_transmission(self, minimal_inputs):
         """Zero transmission rate should stop epidemic immediately."""
         inputs = {**minimal_inputs, 'beta_base': 0.0, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Initial infections should just recover/die, no new ones
         initial_I_total = sum(results['I'][a][0] for a in range(3))
@@ -344,7 +344,7 @@ class TestNumericalStability:
     
     def test_no_nan_values(self, minimal_inputs):
         """No NaN values should appear in results."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for key in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
             for age_series in results[key]:
@@ -353,7 +353,7 @@ class TestNumericalStability:
     
     def test_no_inf_values(self, minimal_inputs):
         """No infinite values should appear in results."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for key in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
             for age_series in results[key]:
@@ -362,7 +362,7 @@ class TestNumericalStability:
     
     def test_compartments_bounded_by_population(self, minimal_inputs):
         """No compartment should exceed total population."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         total_pop = sum(minimal_inputs['age_pops'])
         
         for key in ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D']:
@@ -392,7 +392,7 @@ class TestContactMatrix:
             },
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # With no cross-age contact, middle and elderly should stay uninfected
         # (This may not be exactly zero due to initial conditions propagation)
@@ -415,7 +415,7 @@ class TestContactMatrix:
             ]),
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # With equal contact rates, per-capita attack rates should be similar
         # (though disease parameters differ by age)
@@ -450,7 +450,7 @@ class TestFourAgeGroups:
                 'I_by_age': [10, 0, 0, 0],
             }
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         assert len(results['S']) == 4
         assert len(results['I']) == 4

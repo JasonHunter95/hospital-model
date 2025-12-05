@@ -17,8 +17,8 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
-from demographics import (
+from simulate_model import simulate_model
+from demographics_helpers import (
     compute_birth_rate,
     compute_background_death_rate,
     validate_demographic_params,
@@ -141,7 +141,7 @@ class TestDemographicIntegration:
         """Test that population is conserved without demographic params."""
         inputs = minimal_inputs.copy()
         inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 100}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Sum all compartments at start and end
         n_ages = 3
@@ -155,7 +155,7 @@ class TestDemographicIntegration:
     
     def test_closed_population_with_zero_demographics(self, zero_demographic_inputs):
         """Test population is conserved with zero demographic rates."""
-        results = simulate_master_hospital_model(**zero_demographic_inputs)
+        results = simulate_model(**zero_demographic_inputs)
         
         n_ages = 3
         initial_pop = sum(zero_demographic_inputs['age_pops'])
@@ -201,7 +201,7 @@ class TestDemographicIntegration:
            (accounting for disease deaths)
         3. The population balance equation holds
         """
-        results = simulate_master_hospital_model(**high_birth_rate_inputs)
+        results = simulate_model(**high_birth_rate_inputs)
         
         initial_pop = sum(high_birth_rate_inputs['age_pops'])
         final_live = results['live_population'][-1]
@@ -219,7 +219,7 @@ class TestDemographicIntegration:
     
     def test_background_deaths_decrease_population(self, high_mortality_inputs):
         """Test that background deaths decrease the live population."""
-        results = simulate_master_hospital_model(**high_mortality_inputs)
+        results = simulate_model(**high_mortality_inputs)
         
         initial_pop = sum(high_mortality_inputs['age_pops'])
         final_live = results['live_population'][-1]
@@ -233,7 +233,7 @@ class TestDemographicIntegration:
     
     def test_neonatal_vaccination_distributes_births(self, neonatal_vaccination_inputs):
         """Test that neonatal vaccination splits births between S and S_vax."""
-        results = simulate_master_hospital_model(**neonatal_vaccination_inputs)
+        results = simulate_model(**neonatal_vaccination_inputs)
         
         # With 80% neonatal vaccination, S_vax in young should have significant population
         # from births (even if disease dynamics also affect it)
@@ -247,7 +247,7 @@ class TestDemographicIntegration:
     
     def test_demographic_output_structure(self, demographic_inputs):
         """Test that demographic outputs are present and correctly structured."""
-        results = simulate_master_hospital_model(**demographic_inputs)
+        results = simulate_model(**demographic_inputs)
         
         n_ages = 3
         n_times = len(results['times'])
@@ -273,7 +273,7 @@ class TestDemographicIntegration:
     
     def test_cumulative_demographics_monotonic(self, demographic_inputs):
         """Test that cumulative demographic trackers are monotonically increasing."""
-        results = simulate_master_hospital_model(**demographic_inputs)
+        results = simulate_model(**demographic_inputs)
         
         cum_births = results['cum_births_total']
         cum_bg_deaths = results['cum_background_deaths_total']
@@ -285,7 +285,7 @@ class TestDemographicIntegration:
     
     def test_per_age_demographic_consistency(self, demographic_inputs):
         """Test that per-age demographics sum to totals."""
-        results = simulate_master_hospital_model(**demographic_inputs)
+        results = simulate_model(**demographic_inputs)
         
         n_ages = 3
         n_times = len(results['times'])
@@ -341,7 +341,7 @@ class TestPopulationConservation:
         This test is critical for validating the demographic implementation.
         If it fails, there is a fundamental error in the population accounting.
         """
-        results = simulate_master_hospital_model(**demographic_inputs)
+        results = simulate_model(**demographic_inputs)
         
         n_ages = 3
         initial_pop = sum(demographic_inputs['age_pops'])
@@ -360,7 +360,7 @@ class TestPopulationConservation:
     
     def test_live_population_calculation(self, demographic_inputs):
         """Test that live_population correctly sums all non-dead compartments."""
-        results = simulate_master_hospital_model(**demographic_inputs)
+        results = simulate_model(**demographic_inputs)
         
         n_ages = 3
         
@@ -404,7 +404,7 @@ class TestDemographicEdgeCases:
         inputs = minimal_inputs.copy()
         inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **inputs,
             demographic_config=high_birth_params,
         )
@@ -427,7 +427,7 @@ class TestDemographicEdgeCases:
         inputs = minimal_inputs.copy()
         inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **inputs,
             demographic_config=high_mort_params,
         )
@@ -455,7 +455,7 @@ class TestDemographicEdgeCases:
             'VE_death': 0.99
         }
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **inputs,
             demographic_config=full_neonatal_params,
         )
@@ -480,7 +480,7 @@ class TestDemographicEdgeCases:
         
         # Should not crash
         inputs['sim_config'] = {**inputs.get('sim_config', {}), 'Tmax': 50}
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **inputs,
             demographic_config=demo_params,
         )
@@ -493,7 +493,7 @@ class TestDemographicParametersInResults:
     
     def test_none_demographic_params_in_parameters(self, minimal_inputs):
         """Test that None demographic_params results in validated defaults being stored."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         assert 'parameters' in results
         assert 'demographic_params' in results['parameters']
@@ -511,7 +511,7 @@ class TestEquilibriumDemographics:
     
     def test_equilibrium_population_stability(self, demographic_equilibrium_inputs):
         """Test that equilibrium demographics maintain roughly stable population."""
-        results = simulate_master_hospital_model(**demographic_equilibrium_inputs)
+        results = simulate_model(**demographic_equilibrium_inputs)
         
         initial_pop = sum(demographic_equilibrium_inputs['age_pops'])
         

@@ -15,7 +15,7 @@ import pytest
 import numpy as np
 from config import SCENARIO_REGISTRY
 from config_helpers import get_scenario_params
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 
 
 # =============================================================================
@@ -49,7 +49,7 @@ def scenario_results():
     def get_or_run(scenario_name):
         if scenario_name not in cache:
             params = get_scenario_params(scenario_name)
-            cache[scenario_name] = simulate_master_hospital_model(**params)
+            cache[scenario_name] = simulate_model(**params)
         return cache[scenario_name]
     
     return get_or_run
@@ -78,7 +78,7 @@ class TestScenarioPopulationConservation:
         Uses 1e-6 tolerance as specified in requirements.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         # Calculate initial population
         age_pops = params.get('age_pops', [1_000_000])
@@ -137,7 +137,7 @@ class TestScenarioPopulationConservation:
         Verify conservation holds at EVERY time point, not just final.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         age_pops = params.get('age_pops', [1_000_000])
         initial_pop = sum(age_pops)
@@ -203,7 +203,7 @@ class TestScenarioDeathMonotonicity:
         D_total should never decrease over time.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         D_total = results['D_total']
         
@@ -219,7 +219,7 @@ class TestScenarioDeathMonotonicity:
         D_treated_total should never decrease.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'D_treated_total' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't track D_treated_total")
@@ -236,7 +236,7 @@ class TestScenarioDeathMonotonicity:
         D_untreated_total should never decrease.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'D_untreated_total' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't track D_untreated_total")
@@ -263,7 +263,7 @@ class TestScenarioNonNegativity:
         All 18 compartments should remain >= 0 throughout simulation.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         compartments = ['S', 'E', 'I', 'X_queued', 'X_admitted', 
                        'H_ward', 'H_icu', 'R', 'D',
@@ -300,7 +300,7 @@ class TestScenarioNonNegativity:
         All tracked accumulators should remain >= 0.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         # Use total versions where available
         trackers = ['D_treated_total', 'D_untreated_total', 'cum_births_total', 
@@ -332,7 +332,7 @@ class TestScenarioGatingBounds:
         g_ward should always be in [0, 1].
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'g_ward' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't output g_ward")
@@ -350,7 +350,7 @@ class TestScenarioGatingBounds:
         g_icu should always be in [0, 1].
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'g_icu' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't output g_icu")
@@ -384,7 +384,7 @@ class TestScenarioDifferentialMortality:
         and unvaccinated deaths, so they should sum to D_total.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'D_treated_total' not in results or 'D_untreated_total' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't track differential mortality")
@@ -413,7 +413,7 @@ class TestScenarioDifferentialMortality:
         Verify D_vax_treated + D_vax_untreated ≈ D_vax_total.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         if 'D_vax_treated' not in results or 'D_vax_untreated' not in results:
             pytest.skip(f"Scenario '{scenario_name}' doesn't track vaccinated differential mortality")
@@ -473,8 +473,8 @@ class TestScenarioSpecificBehavior:
         baseline_params = get_scenario_params(baseline_name)
         high_params = get_scenario_params(high_name)
         
-        baseline_results = simulate_master_hospital_model(**baseline_params)
-        high_results = simulate_master_hospital_model(**high_params)
+        baseline_results = simulate_model(**baseline_params)
+        high_results = simulate_model(**high_params)
         
         # Compare total deaths (proxy for infections)
         baseline_deaths = baseline_results['D_total'][-1]
@@ -497,7 +497,7 @@ class TestScenarioSpecificBehavior:
         
         for scenario in vax_scenarios[:2]:  # Test first two
             params = get_scenario_params(scenario)
-            results = simulate_master_hospital_model(**params)
+            results = simulate_model(**params)
             
             # Verify deaths are a reasonable number (not NaN or Inf)
             D_total = results['D_total'][-1]
@@ -520,7 +520,7 @@ class TestScenarioNumericalStability:
         No compartment should contain NaN values.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         for key, value in results.items():
             if isinstance(value, np.ndarray):
@@ -538,7 +538,7 @@ class TestScenarioNumericalStability:
         No compartment should contain Inf values.
         """
         params = get_scenario_params(scenario_name)
-        results = simulate_master_hospital_model(**params)
+        results = simulate_model(**params)
         
         for key, value in results.items():
             if isinstance(value, np.ndarray):
@@ -590,7 +590,7 @@ class TestScenarioRegistryIntegrity:
         for scenario_name in ALL_SCENARIOS:
             params = get_scenario_params(scenario_name)
             try:
-                results = simulate_master_hospital_model(**params)
+                results = simulate_model(**params)
                 assert 'times' in results, \
                     f"Scenario '{scenario_name}' should return times"
                 assert 'D_total' in results, \

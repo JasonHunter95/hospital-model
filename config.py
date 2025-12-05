@@ -8,7 +8,7 @@ Usage:
     from config import SCENARIO_COVID_DELTA
     from config_helpers import get_scenario_params
     params = get_scenario_params('covid_delta')
-    results = simulate_master_hospital_model(**params)
+    results = simulate_model(**params)
 """
 
 # Re-export everything from scenarios.py for backward compatibility

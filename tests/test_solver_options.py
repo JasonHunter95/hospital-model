@@ -14,7 +14,7 @@ The model supports two solver backends:
 
 import pytest
 import numpy as np
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 from config_helpers import get_scenario_params
 from config import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT
 
@@ -60,7 +60,7 @@ class TestSolverSelection:
     
     def test_default_solver_is_odeint(self, minimal_params):
         """Default solver should be odeint."""
-        results = simulate_master_hospital_model(**minimal_params)
+        results = simulate_model(**minimal_params)
         
         # Should complete without error
         assert 'times' in results
@@ -72,7 +72,7 @@ class TestSolverSelection:
     
     def test_odeint_solver_works(self, minimal_params):
         """Explicit odeint solver should work."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             solver='odeint'
         )
@@ -82,7 +82,7 @@ class TestSolverSelection:
     
     def test_solve_ivp_solver_works(self, minimal_params):
         """solve_ivp solver should work."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             solver='solve_ivp'
         )
@@ -97,7 +97,7 @@ class TestSolverSelection:
     def test_invalid_solver_raises_error(self, minimal_params):
         """Invalid solver should raise ValueError."""
         with pytest.raises(ValueError, match='Unknown solver'):
-            simulate_master_hospital_model(
+            simulate_model(
                 **minimal_params,
                 solver='invalid_solver_name'
             )
@@ -113,7 +113,7 @@ class TestSolveIvpMethods:
     @pytest.mark.parametrize('method', ['RK45', 'RK23', 'DOP853'])
     def test_explicit_runge_kutta_methods(self, minimal_params, method):
         """Test explicit Runge-Kutta methods (RK45, RK23, DOP853)."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             solver='solve_ivp',
             solver_method=method
@@ -130,7 +130,7 @@ class TestSolveIvpMethods:
     @pytest.mark.parametrize('method', ['BDF', 'Radau'])
     def test_implicit_methods(self, minimal_params, method):
         """Test implicit methods for stiff problems (BDF, Radau)."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             solver='solve_ivp',
             solver_method=method
@@ -144,7 +144,7 @@ class TestSolveIvpMethods:
     
     def test_lsoda_method(self, minimal_params):
         """Test LSODA method (similar to odeint)."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             solver='solve_ivp',
             solver_method='LSODA'
@@ -162,7 +162,7 @@ class TestToleranceParameters:
     
     def test_default_tolerances(self, minimal_params):
         """Default tolerances should work."""
-        results = simulate_master_hospital_model(**minimal_params)
+        results = simulate_model(**minimal_params)
         
         # Check metadata for default tolerances
         params = results.get('parameters', {})
@@ -175,7 +175,7 @@ class TestToleranceParameters:
     
     def test_tight_tolerances(self, minimal_params):
         """Tight tolerances should produce valid results."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             rtol=1e-10,
             atol=1e-12
@@ -189,7 +189,7 @@ class TestToleranceParameters:
     
     def test_loose_tolerances(self, minimal_params):
         """Loose tolerances should produce valid results (faster)."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **minimal_params,
             rtol=1e-3,
             atol=1e-6
@@ -208,17 +208,17 @@ class TestToleranceParameters:
         Tighter tolerances should give more accurate results.
         """
         # Run with default tolerances
-        results_default = simulate_master_hospital_model(**minimal_params)
+        results_default = simulate_model(**minimal_params)
         
         # Run with tight tolerances
-        results_tight = simulate_master_hospital_model(
+        results_tight = simulate_model(
             **minimal_params,
             rtol=1e-10,
             atol=1e-12
         )
         
         # Run with loose tolerances
-        results_loose = simulate_master_hospital_model(
+        results_loose = simulate_model(
             **minimal_params,
             rtol=1e-3,
             atol=1e-6
@@ -248,12 +248,12 @@ class TestSolverConsistency:
     
     def test_odeint_vs_solve_ivp_consistency(self, minimal_params):
         """odeint and solve_ivp should produce similar results."""
-        results_odeint = simulate_master_hospital_model(
+        results_odeint = simulate_model(
             **minimal_params,
             solver='odeint'
         )
         
-        results_solve_ivp = simulate_master_hospital_model(
+        results_solve_ivp = simulate_model(
             **minimal_params,
             solver='solve_ivp',
             solver_method='LSODA'  # Same algorithm as odeint
@@ -270,7 +270,7 @@ class TestSolverConsistency:
     
     def test_population_conservation_with_solve_ivp(self, high_capacity_params):
         """solve_ivp should maintain population conservation."""
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **high_capacity_params,
             solver='solve_ivp',
             solver_method='BDF'
@@ -313,7 +313,7 @@ class TestStiffSystemHandling:
         }
         
         # Explicit method should still work (with warnings possibly)
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **high_beta_params,
             solver='solve_ivp',
             solver_method='RK45'
@@ -329,7 +329,7 @@ class TestStiffSystemHandling:
             'sim_config': {**minimal_params['sim_config'], 'Tmax': 20},
         }
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **high_beta_params,
             solver='solve_ivp',
             solver_method='BDF'  # Implicit method for stiff systems
@@ -349,7 +349,7 @@ class TestStiffSystemHandling:
             }
         }
         
-        results = simulate_master_hospital_model(**rapid_params)
+        results = simulate_model(**rapid_params)
         
         assert 'times' in results
         assert len(results['times']) == 201  # 20/0.1 + 1
@@ -369,13 +369,13 @@ class TestSolverEdgeCases:
             'sim_config': {**minimal_params['sim_config'], 'Tmax': 1},
         }
         
-        results = simulate_master_hospital_model(**short_params)
+        results = simulate_model(**short_params)
         assert len(results['times']) >= 2
     
     def test_zero_initial_infections(self, minimal_params):
         """Zero initial infections should not cause solver issues."""
         # Model should handle this gracefully
-        results = simulate_master_hospital_model(**minimal_params)
+        results = simulate_model(**minimal_params)
         
         # With default ICs, E=10, so there should be some disease
         assert results['D_total'][-1] >= 0
@@ -392,7 +392,7 @@ class TestSolverEdgeCases:
             'sim_config': {**minimal_params['sim_config'], 'Tmax': 20},
         }
         
-        results = simulate_master_hospital_model(**large_params)
+        results = simulate_model(**large_params)
         assert 'times' in results
 
 
@@ -410,7 +410,7 @@ class TestScenarioSolverOptions:
         # Override Tmax for speed
         params['sim_config']['Tmax'] = 30
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **params,
             solver='solve_ivp',
             solver_method='BDF'
@@ -426,7 +426,7 @@ class TestScenarioSolverOptions:
         # Override Tmax for speed
         params['sim_config']['Tmax'] = 30
         
-        results = simulate_master_hospital_model(
+        results = simulate_model(
             **params,
             solver='solve_ivp',
             solver_method='Radau'

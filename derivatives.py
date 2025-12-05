@@ -12,8 +12,8 @@ from typing import Dict, Tuple, List
 
 from model_types import ODEParams
 from utils import pack_state, unpack_state
-from capacity import hill_gate_vectorized
-from demographics import compute_birth_rate, compute_background_death_rate
+from capacity_helpers import hill_gate_vectorized
+from demographics_helpers import compute_birth_rate, compute_background_death_rate
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 
 

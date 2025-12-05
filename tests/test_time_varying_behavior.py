@@ -1,5 +1,5 @@
 """
-Tests for time-varying behavior in simulate_master_hospital_model.
+Tests for time-varying behavior in simulate_model.
 
 Tests cover:
 - Seasonal forcing effects on transmission
@@ -15,7 +15,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 
 
 # ========================================
@@ -32,7 +32,7 @@ class TestSeasonalForcing:
             'seasonal_config': {'amplitude': 0.0, 'period': 365, 'peak_day': 0},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # All seasonal factors should be 1.0
         for sf in results['seasonal_factor']:
@@ -45,7 +45,7 @@ class TestSeasonalForcing:
             'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Seasonal factors should not all be equal
         unique_values = set(round(sf, 4) for sf in results['seasonal_factor'])
@@ -58,7 +58,7 @@ class TestSeasonalForcing:
             'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # First seasonal factor should be at maximum (1 + amplitude)
         assert results['seasonal_factor'][0] == pytest.approx(1.3)
@@ -70,7 +70,7 @@ class TestSeasonalForcing:
             'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 0},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365, 'time_step': 0.5},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Find seasonal factor near t = 182.5
         times = results['times']
@@ -86,7 +86,7 @@ class TestSeasonalForcing:
             'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 100},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365, 'time_step': 0.5},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         times = results['times']
         peak_idx = min(range(len(times)), key=lambda i: abs(times[i] - 100))
@@ -107,8 +107,8 @@ class TestSeasonalForcing:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
         
-        results_low = simulate_master_hospital_model(**inputs_low)
-        results_high = simulate_master_hospital_model(**inputs_high)
+        results_low = simulate_model(**inputs_low)
+        results_high = simulate_model(**inputs_high)
         
         range_low = max(results_low['seasonal_factor']) - min(results_low['seasonal_factor'])
         range_high = max(results_high['seasonal_factor']) - min(results_high['seasonal_factor'])
@@ -126,14 +126,14 @@ class TestPolicyInterventions:
     def test_no_interventions_policy_mult_one(self, minimal_inputs):
         """Without interventions, policy_mult should be 1.0."""
         inputs = {**minimal_inputs, 'intervention_config': [], 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         for pm in results['policy_mult']:
             assert pm == 1.0
     
     def test_intervention_reduces_policy_mult(self, intervention_inputs):
         """During intervention, policy_mult should be reduced."""
-        results = simulate_master_hospital_model(**intervention_inputs)
+        results = simulate_model(**intervention_inputs)
         
         times = results['times']
         # Find indices during intervention (30-60)
@@ -144,7 +144,7 @@ class TestPolicyInterventions:
     
     def test_policy_mult_before_intervention(self, intervention_inputs):
         """Before intervention, policy_mult should be 1.0."""
-        results = simulate_master_hospital_model(**intervention_inputs)
+        results = simulate_model(**intervention_inputs)
         
         times = results['times']
         before_indices = [i for i, t in enumerate(times) if t < 30]
@@ -154,7 +154,7 @@ class TestPolicyInterventions:
     
     def test_policy_mult_after_intervention(self, intervention_inputs):
         """After intervention, policy_mult should return to 1.0."""
-        results = simulate_master_hospital_model(**intervention_inputs)
+        results = simulate_model(**intervention_inputs)
         
         times = results['times']
         after_indices = [i for i, t in enumerate(times) if t > 60]
@@ -173,8 +173,8 @@ class TestPolicyInterventions:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150},
         }
         
-        results_no_int = simulate_master_hospital_model(**inputs_no_int)
-        results_with_int = simulate_master_hospital_model(**inputs_with_int)
+        results_no_int = simulate_model(**inputs_no_int)
+        results_with_int = simulate_model(**inputs_with_int)
         
         # With intervention should have fewer total deaths
         assert results_with_int['D_total'][-1] < results_no_int['D_total'][-1]
@@ -189,7 +189,7 @@ class TestPolicyInterventions:
             ],
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         times = results['times']
         
@@ -218,7 +218,7 @@ class TestPolicyInterventions:
             ],
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         times = results['times']
         
@@ -242,7 +242,7 @@ class TestWaningImmunity:
             'waning_config': None,  # No waning
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # After epidemic subsides, R should be relatively stable
         # (not returning to S)
@@ -256,7 +256,7 @@ class TestWaningImmunity:
             'waning_config': {'omega': 0.02},  # Fast waning (~50 day immunity)
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         R_total = [sum(results['R'][a][t] for a in range(len(minimal_inputs['age_pops']))) 
                    for t in range(len(results['times']))]
@@ -273,7 +273,7 @@ class TestWaningImmunity:
             'waning_config': {'omega': 0.02},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 400},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         S_total = [sum(results['S'][a][t] for a in range(len(minimal_inputs['age_pops']))) 
                    for t in range(len(results['times']))]
@@ -296,7 +296,7 @@ class TestWaningImmunity:
             },
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Just verify it runs without error
         assert len(results['times']) > 0
@@ -308,7 +308,7 @@ class TestWaningImmunity:
             'waning_config': {'omega': 0.01},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         assert len(results['times']) > 0
 
 
@@ -329,7 +329,7 @@ class TestCombinedTimeVarying:
             ],
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         times = results['times']
         beta_base = minimal_inputs['beta_base']
@@ -353,7 +353,7 @@ class TestCombinedTimeVarying:
             ],
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Verify simulation completes successfully
         assert len(results['times']) > 0
@@ -372,7 +372,7 @@ class TestCombinedTimeVarying:
             ],
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # beta_t should be beta_base * seasonal(1.0) * policy(0.7)
         # Note: Vaccine coverage affects force of infection, not beta_t directly
@@ -396,7 +396,7 @@ class TestLongTermDynamics:
             'waning_config': {'omega': 0.005},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 1000, 'time_step': 0.5},
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # After long time, system should have non-zero I
         # (endemic state rather than extinction)
@@ -414,7 +414,7 @@ class TestLongTermDynamics:
             'seasonal_config': {'amplitude': 0.3, 'period': 365, 'peak_day': 180},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 730, 'time_step': 0.5},  # 2 years
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         I_total = [sum(results['I'][a][t] for a in range(len(minimal_inputs['age_pops']))) 
                    for t in range(len(results['times']))]

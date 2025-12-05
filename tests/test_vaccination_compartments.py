@@ -22,7 +22,7 @@ import os
 # Add parent directory to path to import modules
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 from config import (
     AGE_PARAMS_DEFAULT,
     CONTACT_MATRIX_DEFAULT,
@@ -59,7 +59,7 @@ def get_total_array(results, compartment):
 
 @pytest.fixture
 def minimal_inputs():
-    """Minimal valid inputs for simulate_master_hospital_model."""
+    """Minimal valid inputs for simulate_model."""
     from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     return {
         'beta_base': 0.3,
@@ -178,7 +178,7 @@ class TestPopulationConservation:
     
     def test_total_population_conserved_with_vaccination(self, vaccination_inputs):
         """Total population (all 16 compartments) should be constant over time."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         n_ages = len(vaccination_inputs['age_pops'])
         n_times = len(result['times'])
@@ -203,7 +203,7 @@ class TestPopulationConservation:
     
     def test_population_per_age_conserved_with_vaccination(self, vaccination_inputs):
         """Population per age group should be conserved."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         age_pops = vaccination_inputs['age_pops']
         n_ages = len(age_pops)
@@ -226,7 +226,7 @@ class TestPopulationConservation:
     
     def test_population_conserved_with_waning(self, vaccine_waning_inputs):
         """Population conserved even with vaccine immunity waning."""
-        result = simulate_master_hospital_model(**vaccine_waning_inputs)
+        result = simulate_model(**vaccine_waning_inputs)
         
         n_ages = len(vaccine_waning_inputs['age_pops'])
         n_times = len(result['times'])
@@ -258,7 +258,7 @@ class TestVaccinationDynamics:
     
     def test_vaccination_moves_s_to_s_vax(self, vaccination_inputs):
         """Vaccination should transfer people from S to S_vax."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         # S_vax_total should increase from zero (default)
         s_vax_total = get_total_array(result, 'S_vax')
@@ -270,7 +270,7 @@ class TestVaccinationDynamics:
     
     def test_zero_vaccination_rate_no_vaccinations(self, minimal_inputs):
         """With zero vaccination rate, no vaccinations should occur."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
             vaccine_config={'vaccination_rate': 0.0, 'VE_infection': 0.6},
         )
@@ -286,11 +286,11 @@ class TestVaccinationDynamics:
     
     def test_higher_vaccination_rate_faster_coverage(self, minimal_inputs):
         """Higher vaccination rate should lead to faster S_vax growth."""
-        result_low = simulate_master_hospital_model(
+        result_low = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={'vaccination_rate': 0.01, 'VE_infection': 0.6},
         )
-        result_high = simulate_master_hospital_model(
+        result_high = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={'vaccination_rate': 0.05, 'VE_infection': 0.6},
         )
@@ -305,7 +305,7 @@ class TestVaccinationDynamics:
     
     def test_age_specific_vaccination_rates(self, age_specific_vaccination_inputs):
         """Age-specific vaccination rates should be applied correctly."""
-        result = simulate_master_hospital_model(**age_specific_vaccination_inputs)
+        result = simulate_model(**age_specific_vaccination_inputs)
         
         # Elderly (age group 2) with highest rate should have proportionally more vaccinated
         vax_rates = age_specific_vaccination_inputs['vaccine_config']['vaccination_rate']
@@ -353,10 +353,10 @@ class TestVEInfection:
         
         The high VE scenario should show significantly fewer breakthrough infections.
         """
-        result_low_ve = simulate_master_hospital_model(
+        result_low_ve = simulate_model(
             **{**high_vaccination_inputs, 'vaccine_config': {**high_vaccination_inputs['vaccine_config'], 'VE_infection': 0.3}}
         )
-        result_high_ve = simulate_master_hospital_model(
+        result_high_ve = simulate_model(
             **{**high_vaccination_inputs, 'vaccine_config': {**high_vaccination_inputs['vaccine_config'], 'VE_infection': 0.9}}
         )
         
@@ -398,7 +398,7 @@ class TestVEInfection:
         If this test fails, it indicates a bug in the force of infection calculation
         for vaccinated individuals.
         """
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
             vaccine_config={
                 'vaccination_rate': 0.02,
@@ -478,8 +478,8 @@ class TestVESevere:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}
         }
         
-        result_low_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.2}})
-        result_high_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.9}})
+        result_low_ve = simulate_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.2}})
+        result_high_ve = simulate_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_severe': 0.9}})
         
         # Maximum X_vax should be lower with higher VE_severe
         x_vax_low = get_total_array(result_low_ve, 'X_vax')
@@ -518,7 +518,7 @@ class TestVESevere:
         but completely prevents severe disease. All breakthrough infections
         remain mild and resolve without hospitalization.
         """
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={
                 'vaccination_rate': 0.0,  # No new vaccinations
@@ -561,8 +561,8 @@ class TestVEDeath:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}
         }
         
-        result_low_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.1}})
-        result_high_ve = simulate_master_hospital_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.95}})
+        result_low_ve = simulate_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.1}})
+        result_high_ve = simulate_model(**{**inputs, 'vaccine_config': {**inputs['vaccine_config'], 'VE_death': 0.95}})
         
         # D_vax at end should be lower with higher VE_death
         d_vax_low = get_total_array(result_low_ve, 'D_vax')
@@ -573,7 +573,7 @@ class TestVEDeath:
     
     def test_perfect_ve_death_no_mortality(self, minimal_inputs):
         """VE_death=1.0 should prevent all deaths in vaccinated compartments."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
             vaccine_config={
                 'vaccination_rate': 0.0,
@@ -604,7 +604,7 @@ class TestVaccineWaning:
     
     def test_waning_reduces_s_vax(self, vaccine_waning_inputs):
         """Vaccine waning should reduce S_vax over time."""
-        result = simulate_master_hospital_model(**vaccine_waning_inputs)
+        result = simulate_model(**vaccine_waning_inputs)
         
         # S_vax should first increase (vaccination) then may decrease (waning + infection)
         s_vax_total = get_total_array(result, 'S_vax')
@@ -617,7 +617,7 @@ class TestVaccineWaning:
     
     def test_wane_to_s_increases_susceptibles(self, minimal_inputs):
         """When wane_to_S=True, waned immunity should increase S."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}},
             vaccine_config={
                 'vaccination_rate': 0.03,
@@ -637,7 +637,7 @@ class TestVaccineWaning:
     
     def test_wane_to_s_vax_keeps_in_vaccinated(self, minimal_inputs):
         """When wane_to_S=False, waned immunity should go to S_vax."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}},
             vaccine_config={
                 'vaccination_rate': 0.03,
@@ -673,7 +673,7 @@ class TestVaccineWaning:
         # Don't include vaccine_waning_params
         inputs = {k: v for k, v in vaccination_inputs.items() 
                   if k != 'vaccine_waning_params'}
-        result = simulate_master_hospital_model(**inputs)
+        result = simulate_model(**inputs)
         
         # R_vax should be monotonically increasing (no waning back to S)
         r_vax_total = get_total_array(result, 'R_vax')
@@ -691,7 +691,7 @@ class TestBreakthroughInfections:
     
     def test_breakthrough_infections_occur(self, vaccination_inputs):
         """With imperfect VE_infection, breakthrough infections should occur."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         # E_vax and I_vax should have positive values
         e_vax_total = get_total_array(result, 'E_vax')
@@ -702,7 +702,7 @@ class TestBreakthroughInfections:
     
     def test_cumulative_breakthrough_tracking(self, high_vaccination_inputs):
         """Cumulative breakthrough infections should be tracked."""
-        result = simulate_master_hospital_model(**high_vaccination_inputs)
+        result = simulate_model(**high_vaccination_inputs)
         
         # Check if breakthrough tracking is in result
         if 'breakthrough_infections' in result:
@@ -732,7 +732,7 @@ class TestNonNegativity:
     
     def test_all_vaccinated_compartments_non_negative(self, vaccination_inputs):
         """All vaccinated compartments should be non-negative."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         vax_compartments = ['S_vax', 'E_vax', 'I_vax', 'X_vax',
                             'H_ward_vax', 'H_icu_vax', 'R_vax', 'D_vax']
@@ -744,7 +744,7 @@ class TestNonNegativity:
     
     def test_non_negative_with_high_vaccination(self, high_vaccination_inputs):
         """Rapid vaccination should not cause negative compartments."""
-        result = simulate_master_hospital_model(**high_vaccination_inputs)
+        result = simulate_model(**high_vaccination_inputs)
         
         all_compartments = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D',
                            'S_vax', 'E_vax', 'I_vax', 'X_vax',
@@ -757,7 +757,7 @@ class TestNonNegativity:
     
     def test_non_negative_with_waning(self, vaccine_waning_inputs):
         """Vaccine waning should not cause negative compartments."""
-        result = simulate_master_hospital_model(**vaccine_waning_inputs)
+        result = simulate_model(**vaccine_waning_inputs)
         
         all_compartments = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D',
                            'S_vax', 'E_vax', 'I_vax', 'X_vax',
@@ -778,7 +778,7 @@ class TestDeathMonotonicity:
     
     def test_d_vax_monotonically_increasing(self, vaccination_inputs):
         """D_vax should be monotonically increasing."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         d_vax = get_total_array(result, 'D_vax')
         for i in range(1, len(d_vax)):
@@ -787,7 +787,7 @@ class TestDeathMonotonicity:
     
     def test_d_vax_by_age_monotonically_increasing(self, vaccination_inputs):
         """D_vax should be monotonically increasing for each age."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         n_ages = len(vaccination_inputs['age_pops'])
         for age in range(n_ages):
@@ -798,7 +798,7 @@ class TestDeathMonotonicity:
     
     def test_total_deaths_monotonic_with_vaccination(self, vaccination_inputs):
         """Total deaths (D + D_vax) should be monotonically increasing."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         d_total = get_total_array(result, 'D')
         d_vax_total = get_total_array(result, 'D_vax')
@@ -857,7 +857,7 @@ class TestVaccineProfiles:
         ve_params = {k: v for k, v in profile.items() 
                      if k in ['VE_infection', 'VE_severe', 'VE_death']}
         
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={'vaccination_rate': 0.01, **ve_params},
         )
@@ -877,7 +877,7 @@ class TestBackwardCompatibility:
     
     def test_default_no_vaccination(self, minimal_inputs):
         """Without vaccination parameters, no vaccination should occur."""
-        result = simulate_master_hospital_model(**minimal_inputs)
+        result = simulate_model(**minimal_inputs)
         
         # Vaccinated compartments should be zero or near-zero
         s_vax = get_total_array(result, 'S_vax')
@@ -892,8 +892,8 @@ class TestBackwardCompatibility:
     
     def test_unvaccinated_dynamics_unchanged(self, minimal_inputs):
         """Unvaccinated dynamics should be same as before when no vaccination."""
-        result_no_vax = simulate_master_hospital_model(**minimal_inputs)
-        result_with_vax_zero = simulate_master_hospital_model(
+        result_no_vax = simulate_model(**minimal_inputs)
+        result_with_vax_zero = simulate_model(
             **minimal_inputs,
             vaccine_config={
                 'vaccination_rate': 0.0,
@@ -917,7 +917,7 @@ class TestBackwardCompatibility:
     
     def test_result_dict_has_all_expected_keys(self, vaccination_inputs):
         """Result dict should have all vaccinated and unvaccinated compartments."""
-        result = simulate_master_hospital_model(**vaccination_inputs)
+        result = simulate_model(**vaccination_inputs)
         
         # Unvaccinated (original)
         expected_unvax = ['S', 'E', 'I', 'X', 'H_ward', 'H_icu', 'R', 'D', 'times',
@@ -941,7 +941,7 @@ class TestCombinedEffects:
     
     def test_vaccination_with_waning_immunity(self, minimal_inputs):
         """Vaccination should work alongside natural immunity waning."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365}},
             vaccine_config={
                 'vaccination_rate': 0.01,
@@ -975,7 +975,7 @@ class TestCombinedEffects:
     
     def test_vaccination_with_interventions(self, minimal_inputs):
         """Vaccination should work with policy interventions."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 100}},
             vaccine_config={
                 'vaccination_rate': 0.02,
@@ -996,7 +996,7 @@ class TestCombinedEffects:
     
     def test_vaccination_with_seasonality(self, minimal_inputs):
         """Vaccination should work with seasonal forcing."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 365}},
             vaccine_config={
                 'vaccination_rate': 0.01,
@@ -1026,7 +1026,7 @@ class TestEdgeCases:
     def test_all_initial_vaccinated(self, minimal_inputs):
         """Simulation should handle all-vaccinated initial population."""
         age_pops = minimal_inputs['age_pops']
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={
                 'vaccination_rate': 0.0,
@@ -1061,7 +1061,7 @@ class TestEdgeCases:
     def test_ve_at_boundaries(self, minimal_inputs):
         """VE values at 0 and 1 should work correctly."""
         # VE = 0 (no protection)
-        result_no_ve = simulate_master_hospital_model(
+        result_no_ve = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={
                 'vaccination_rate': 0.01,
@@ -1072,7 +1072,7 @@ class TestEdgeCases:
         )
         
         # VE = 1 (perfect protection)
-        result_full_ve = simulate_master_hospital_model(
+        result_full_ve = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 50}},
             vaccine_config={
                 'vaccination_rate': 0.01,
@@ -1088,7 +1088,7 @@ class TestEdgeCases:
     
     def test_very_high_vaccination_rate(self, minimal_inputs):
         """Very high vaccination rate should not cause instability."""
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             **{**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 30}},
             vaccine_config={
                 'vaccination_rate': 0.5,  # 50% per day - extremely high
@@ -1127,7 +1127,7 @@ class TestEdgeCases:
             'mu_H': 0.02,
         }]
         
-        result = simulate_master_hospital_model(
+        result = simulate_model(
             beta_base=0.3,
             age_params=single_age_params,
             contact_matrix=np.array([[8.0]]),

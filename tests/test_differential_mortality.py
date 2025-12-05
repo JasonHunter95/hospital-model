@@ -1,5 +1,5 @@
 """
-Tests for differential mortality tracking in simulate_master_hospital_model.
+Tests for differential mortality tracking in simulate_model.
 
 Tests cover:
 - D_treated vs D_untreated tracking
@@ -15,7 +15,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from master_hospital_model import simulate_master_hospital_model
+from simulate_model import simulate_model
 from config import DIFFERENTIAL_MORTALITY_PARAMS
 
 
@@ -28,7 +28,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_treated_and_d_untreated_present(self, minimal_inputs):
         """Results should contain both D_treated and D_untreated."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         assert 'D_treated' in results
         assert 'D_untreated' in results
@@ -37,7 +37,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_treated_per_age_dimensions(self, minimal_inputs, n_ages):
         """D_treated should have correct dimensions per age group."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         assert len(results['D_treated']) == n_ages
         for age_series in results['D_treated']:
@@ -45,7 +45,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_untreated_per_age_dimensions(self, minimal_inputs, n_ages):
         """D_untreated should have correct dimensions per age group."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         assert len(results['D_untreated']) == n_ages
         for age_series in results['D_untreated']:
@@ -53,7 +53,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_sum_equals_d_total(self, minimal_inputs):
         """D_treated + D_untreated should equal D_total."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for t_idx in range(len(results['times'])):
             d_sum = (results['D_treated_total'][t_idx] + 
@@ -63,7 +63,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_sum_equals_d_total_per_age(self, minimal_inputs, n_ages):
         """D_treated + D_untreated should equal D per age group."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for t_idx in range(len(results['times'])):
@@ -74,7 +74,7 @@ class TestDifferentialMortalityBasics:
     
     def test_d_treated_and_untreated_monotonic(self, minimal_inputs, n_ages):
         """Both D_treated and D_untreated should be monotonically increasing."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for t_idx in range(1, len(results['times'])):
@@ -112,7 +112,7 @@ class TestHighCapacityMortality:
         ICU denial deaths occur when ward patients need ICU but can't get it.
         With high capacity, g_icu should be near 1, so no excess ward deaths.
         """
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # All gating factors should be near 1
         for g in results['g_ward']:
@@ -122,7 +122,7 @@ class TestHighCapacityMortality:
     
     def test_high_capacity_gating_near_one(self, high_capacity_inputs):
         """With very high capacity, gating should remain near 1 throughout."""
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # Check all gating factors are near 1
         min_g_ward = min(results['g_ward'])
@@ -141,7 +141,7 @@ class TestLowCapacityMortality:
     
     def test_low_capacity_significant_untreated(self, low_capacity_inputs):
         """With low capacity, there should be significant untreated deaths."""
-        results = simulate_master_hospital_model(**low_capacity_inputs)
+        results = simulate_model(**low_capacity_inputs)
         
         # With very low capacity, some untreated deaths should occur
         d_untreated = results['D_untreated_total'][-1]
@@ -153,17 +153,17 @@ class TestLowCapacityMortality:
     def test_zero_capacity_raises_error(self, zero_capacity_inputs):
         """With zero capacity, should raise ValueError due to input validation."""
         with pytest.raises(ValueError, match="capacity must be positive"):
-            simulate_master_hospital_model(**zero_capacity_inputs)
+            simulate_model(**zero_capacity_inputs)
     
     def test_capacity_ratio_affects_untreated_proportion(self, minimal_inputs):
         """Higher capacity constraint should lead to more untreated deaths."""
         # Low capacity run
         low_cap = {**minimal_inputs, 'capacity_config': {'ward_capacity': 10, 'icu_capacity': 3, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
-        results_low = simulate_master_hospital_model(**low_cap)
+        results_low = simulate_model(**low_cap)
         
         # Medium capacity run
         med_cap = {**minimal_inputs, 'capacity_config': {'ward_capacity': 50, 'icu_capacity': 15, 'hill_coef_ward': 4, 'hill_coef_icu': 4}}
-        results_med = simulate_master_hospital_model(**med_cap)
+        results_med = simulate_model(**med_cap)
         
         # Untreated proportion should be higher with lower capacity
         if results_low['D_total'][-1] > 10 and results_med['D_total'][-1] > 10:
@@ -183,7 +183,7 @@ class TestAgeSpecificMortality:
     def test_elderly_higher_mortality(self, minimal_inputs):
         """Elderly should have higher mortality than young."""
         inputs = {**minimal_inputs, 'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 300}}
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Get per-capita deaths
         d_young = results['D'][0][-1] / inputs['age_pops'][0]
@@ -194,7 +194,7 @@ class TestAgeSpecificMortality:
     
     def test_age_specific_untreated_multipliers(self, low_capacity_inputs):
         """Untreated mortality multipliers should differ by age."""
-        results = simulate_master_hospital_model(**low_capacity_inputs)
+        results = simulate_model(**low_capacity_inputs)
         
         # Just verify the simulation runs with capacity constraints
         # The age-specific multipliers are defined in config
@@ -220,7 +220,7 @@ class TestGatingMortalityCorrelation:
             'capacity_config': {'ward_capacity': 5, 'icu_capacity': 2, 'hill_coef_ward': 4, 'hill_coef_icu': 4},
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}
         }
-        results = simulate_master_hospital_model(**inputs)
+        results = simulate_model(**inputs)
         
         # Find time periods where g_ward is low
         low_g_indices = [i for i, g in enumerate(results['g_ward']) if g < 0.5]
@@ -239,7 +239,7 @@ class TestGatingMortalityCorrelation:
         
         What we check: no excess deaths from capacity *denial* specifically.
         """
-        results = simulate_master_hospital_model(**high_capacity_inputs)
+        results = simulate_model(**high_capacity_inputs)
         
         # All g_ward values should be near 1
         for g in results['g_ward']:
@@ -257,18 +257,18 @@ class TestMortalityComponents:
         """Deaths from I compartment should always be 'treated'."""
         # This is inherent to the model structure - I deaths are baseline
         # Just verify the model runs correctly
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         assert 'D_treated' in results
     
     def test_icu_deaths_treated(self, minimal_inputs):
         """Deaths in ICU should be 'treated' (patient received care)."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         # ICU deaths go to D_treated in the model
         assert results['D_treated_total'][-1] >= 0
     
     def test_ward_denied_icu_is_untreated(self, low_capacity_inputs):
         """Ward patients denied ICU have elevated mortality (untreated component)."""
-        results = simulate_master_hospital_model(**low_capacity_inputs)
+        results = simulate_model(**low_capacity_inputs)
         
         # With low ICU capacity, some ward patients who need ICU won't get it
         # This contributes to untreated deaths
@@ -285,7 +285,7 @@ class TestMortalityConsistency:
     
     def test_d_treated_non_negative(self, minimal_inputs, n_ages):
         """D_treated should be non-negative at all times."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for val in results['D_treated'][a]:
@@ -293,7 +293,7 @@ class TestMortalityConsistency:
     
     def test_d_untreated_non_negative(self, minimal_inputs, n_ages):
         """D_untreated should be non-negative at all times."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for val in results['D_untreated'][a]:
@@ -301,7 +301,7 @@ class TestMortalityConsistency:
     
     def test_d_treated_bounded_by_d(self, minimal_inputs, n_ages):
         """D_treated should not exceed D."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for t_idx in range(len(results['times'])):
@@ -309,7 +309,7 @@ class TestMortalityConsistency:
     
     def test_d_untreated_bounded_by_d(self, minimal_inputs, n_ages):
         """D_untreated should not exceed D."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for a in range(n_ages):
             for t_idx in range(len(results['times'])):
@@ -317,7 +317,7 @@ class TestMortalityConsistency:
     
     def test_totals_match_age_sums(self, minimal_inputs, n_ages):
         """D_treated_total should equal sum of D_treated per age."""
-        results = simulate_master_hospital_model(**minimal_inputs)
+        results = simulate_model(**minimal_inputs)
         
         for t_idx in range(len(results['times'])):
             age_sum = sum(results['D_treated'][a][t_idx] for a in range(n_ages))
@@ -347,8 +347,8 @@ class TestMortalityScenarios:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
         }
         
-        results_high = simulate_master_hospital_model(**high_cap)
-        results_low = simulate_master_hospital_model(**low_cap)
+        results_high = simulate_model(**high_cap)
+        results_low = simulate_model(**low_cap)
         
         # Lower capacity should lead to more deaths
         assert results_low['D_total'][-1] >= results_high['D_total'][-1] * 0.95
@@ -366,8 +366,8 @@ class TestMortalityScenarios:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 150}
         }
         
-        results_no_int = simulate_master_hospital_model(**no_int)
-        results_with_int = simulate_master_hospital_model(**with_int)
+        results_no_int = simulate_model(**no_int)
+        results_with_int = simulate_model(**with_int)
         
         # Intervention should reduce total deaths
         assert results_with_int['D_total'][-1] < results_no_int['D_total'][-1]
@@ -385,8 +385,8 @@ class TestMortalityScenarios:
             'sim_config': {**minimal_inputs['sim_config'], 'Tmax': 200}
         }
         
-        results_no_vax = simulate_master_hospital_model(**no_vax)
-        results_with_vax = simulate_master_hospital_model(**with_vax)
+        results_no_vax = simulate_model(**no_vax)
+        results_with_vax = simulate_model(**with_vax)
         
         # Vaccination should reduce total deaths
         assert results_with_vax['D_total'][-1] < results_no_vax['D_total'][-1]

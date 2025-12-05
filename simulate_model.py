@@ -1,5 +1,5 @@
 """
-Master SEIXHRD hospital model with Three-Factor Vaccination Compartments
+SEIXHRD model with Three-Factor Vaccination Compartments, age-structured compartments, time-varying parameters, and NPIs.
 
 This model includes:
 - Age-structured compartments (S, E, I, X_queued, X_admitted, H_ward, H_icu, R, D)
@@ -43,7 +43,7 @@ from derivatives import (
     master_deriv_solve_ivp,
     master_deriv,
 )
-from demographics import validate_demographic_params
+from demographics_helpers import validate_demographic_params
 from time_varying_helpers import seasonal_forcing, policy_multiplier
 from model_types import (
     ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 
@@ -53,7 +53,7 @@ from model_types import (
 from typing import List, Dict, Optional, Any, Union
 
 
-def simulate_master_hospital_model(
+def simulate_model(
     # Core Data (Required)
     beta_base: float,
     age_params: List[AgeParams],
@@ -84,7 +84,9 @@ def simulate_master_hospital_model(
     track_compartment_flows: bool = False,
 ):
     """
-    Simulate the Master SEIXHRD hospital model with Three-Factor Vaccination.
+    Simulate the SEIXHRD hospital model with Three-Factor Vaccination and
+    age-structured compartments. The model also supports time-varying parameters
+    such as seasonality as well as NPIs like lockdowns and other types of interventions.
     
     This model implements a comprehensive age-structured compartmental model with
     explicit vaccinated compartments using a three-factor vaccine efficacy model:
@@ -291,7 +293,7 @@ def simulate_master_hospital_model(
     >>> from config import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
     >>> 
     >>> # New grouped parameter style (recommended)
-    >>> results = simulate_master_hospital_model(
+    >>> results = simulate_model(
     ...     beta_base=0.3,
     ...     age_params=AGE_PARAMS_DEFAULT,
     ...     contact_matrix=CONTACT_MATRIX_DEFAULT,
@@ -701,15 +703,10 @@ def simulate_master_hospital_model(
     )
     
     return processor.process()
-# End of master_hospital_model.py
+# End of simulate_model.py
 # More features that I want to add later:
 # - Integration with real-world data for parameter fitting
-# - Visualization utilities for results analysis
-# - Sensitivity analysis tools
 # - Export results to common data formats (CSV, JSON, etc.)
-# - User-friendly interface for setting up simulations
-# - Performance optimizations for large populations
-# - Integration with GIS data for spatial modeling
-# - Customizable output metrics for specific research questions
+# - User-friendly interface for setting up simulations (maybe a web interface)
+# - Maybe look at some performance optimizations for larger scale simulations
 # - Interactive dashboards for exploring simulation results
-# - Machine learning integration for parameter estimation
