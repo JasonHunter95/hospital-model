@@ -2,6 +2,8 @@
 
 An attempt at a comprehensive, age-structured compartmental epidemic model designed for analyzing infectious disease dynamics under healthcare system stress. This model features a split-stage severe disease progression (Queued vs. Admitted), distinct Ward and ICU capacity constraints, and a Three-Factor vaccination model, support for seasonality and policy interventions (lockdowns), and support for birth and death processes. Most of these features are optional, so that the features can be toggled and tested in isolation, or combined.
 
+![Model Diagram](media/videos/manim_scenes/1080p60/EpidemicWaveScene_ManimCE_v0.19.0.gif)
+
 ## Scientific Overview
 
 The **SEIXHRD model** extends the traditional SEIR framework to explicitly model the interaction between epidemic dynamics and healthcare capacity. It is designed to answer critical policy questions regarding hospital surge capacity, vaccine allocation, and non-pharmaceutical interventions.

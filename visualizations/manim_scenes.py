@@ -7,7 +7,7 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from master_hospital_model import simulate_model
+    from simulate_model import simulate_model
     from scenario_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
@@ -18,7 +18,7 @@ try:
 except ImportError:
     # fallback for when running from different contexts
     sys.path.append("..")
-    from master_hospital_model import simulate_model
+    from simulate_model import simulate_model
     from scenario_helpers import (
         get_scenario_params, compare_vaccine_profiles
     )
@@ -52,6 +52,20 @@ class ModelData:
             self.params['sim_config'] = {'Tmax': 100}
         
         self.results = simulate_model(**self.params)
+        
+        # Pre-calculate totals if not present (though model usually returns them)
+        if 'S_total' not in self.results:
+            self.results['S_total'] = np.sum(self.results['S'], axis=0)
+            self.results['E_total'] = np.sum(self.results['E'], axis=0)
+            self.results['I_total'] = np.sum(self.results['I'], axis=0)
+            self.results['X_admitted_total'] = np.sum(self.results['X_admitted'], axis=0)
+            self.results['X_queued_total'] = np.sum(self.results['X_queued'], axis=0)
+            self.results['H_ward_total'] = np.sum(self.results['H_ward'], axis=0)
+            self.results['H_ICU_total'] = np.sum(self.results['H_icu'], axis=0)
+            self.results['R_total'] = np.sum(self.results['R'], axis=0)
+            self.results['D_total'] = np.sum(self.results['D'], axis=0)
+            self.results['D_treated_total'] = np.sum(self.results['D_treated'], axis=0)
+            self.results['D_untreated_total'] = np.sum(self.results['D_untreated'], axis=0)
         
         # store capacity values for drawing in the animation
         capacity_config = self.params.get('capacity_config', {})
@@ -164,6 +178,8 @@ class EpidemicWaveScene(Scene):
     def construct(self):
         data = ModelData()
         max_time = 100 # limit to 100 days for better pacing
+
+        
         
         # calculates max population to scale the Y-axis properly
         total_pop = data.get_value_at_time('S_total', 0) + \
