@@ -12,7 +12,7 @@ Key differentiators from standard models:
 *   **Explicit Capacity Constraints**: Models the "tipping point" where hospital capacity is exceeded, leading to increased mortality.
 *   **Split-X Architecture**: Separates severe cases into `X_queued` (waiting for care) and `X_admitted` (receiving care), allowing for rigorous tracking of unmet care needs.
 *   **Differential Mortality**: Mechanistically calculates excess deaths due to lack of ward or ICU beds.
-*   **Three-Factor Vaccination**: Models vaccine efficacy against infection ($VE_{I}$), severe disease ($VE_{S}$), and death ($VE_{D}$) separately.
+*   **Three-Factor Vaccination**: Models vaccine efficacy against infection (${VE}_{I}$), severe disease (${VE}_{S}$), and death (${VE}_{D}$) separately.
 
 ## Key Features
 
@@ -117,10 +117,12 @@ $$
 
 **Key Parameters:**
 *   $\nu$: Birth rate (enters $S$)
+*   $\mu_{bg}$: Background mortality rate (enters $D$)
 *   $\phi$: Vaccination rate ($S \to S_{vax}$)
 *   $\sigma$: Progression to severe disease ($I \to X$)
 *   $\eta$: Hospital admission rate ($X \to H$)
 *   $\gamma_{admit}$: Transfer from stabilization to ward
+*   $\omega$: Recovery waning rate ($R \to S$)
 *   $g_{ward}$, $g_{icu}$: Hill gating functions (0 to 1) based on capacity
 
 #### 3. Differential Mortality
@@ -135,25 +137,37 @@ $$
 
 #### 4. Vaccinated Dynamics
 A parallel system exists for vaccinated individuals ($S_{vax}, E_{vax}, \dots$). Transitions are identical but parameters are modified by Vaccine Efficacy ($VE$):
-*   **Infection**: $\lambda_{vax} = (1 - VE_{infection}) \lambda$
-*   **Severe Disease**: $\sigma_{vax} = (1 - VE_{severe}) \sigma$
-*   **Mortality**: $\mu_{vax} = (1 - VE_{death}) \mu$
+*   **Infection**: $\lambda_{vax} = \lambda \cdot (1 - VE_{infection})$
+*   **Severe Disease**: $\sigma_{vax} = \sigma \cdot (1 - VE_{severe})$
+*   **Mortality**: $\mu_{vax} = \mu \cdot (1 - VE_{death})$
 
 ## Configuration & Scenarios
 
-The project uses a hierarchical configuration system located in `config.py` and `scenarios.py`.
+The project uses a hierarchical configuration system located in `scenarios.py`.
 
 *   **Scenarios**: Pre-packaged bundles of parameters (e.g., `covid_delta`, `seasonal_flu`).
 *   **Overrides**: You can override any specific parameter when calling `simulate_model`.
 
 ### Example: Custom Scenario
 ```python
+from scenarios import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, AGE_POPS_DEFAULT, DEFAULT_SIM_PARAMS
+
 results = simulate_model(
+    # Required arguments
     beta_base=0.35,
-    ward_capacity=1000,
-    icu_capacity=200,
-    vaccination_rate=0.01,
-    VE_infection=0.8
+    age_params=AGE_PARAMS_DEFAULT,
+    contact_matrix=CONTACT_MATRIX_DEFAULT,
+    age_pops=AGE_POPS_DEFAULT,
+
+    # Optional grouped configurations
+    capacity_config={
+        'ward_capacity': 1000,
+        'icu_capacity': 200
+    },
+    vaccine_config={
+        'vaccination_rate': 0.01,
+        'VE_infection': 0.8
+    }
 )
 ```
 
