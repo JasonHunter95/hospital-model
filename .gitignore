@@ -22,3 +22,9 @@ videos/manim_scenes/2160p60/partial_movie_files/
 Tex/
 texts/
 videos/
+paper/main.synctex.gz
+paper/main.out
+paper/main.log
+.gitignore
+OLDREADME.md
+paper/main.aux

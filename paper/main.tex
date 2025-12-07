@@ -1,0 +1,216 @@
+\documentclass[10pt,twocolumn]{article}
+
+% Page layout
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+
+% Typography and fonts
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage{microtype}
+
+% Math and symbols
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+
+% Graphics and figures
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{subcaption}
+
+% Tables
+\usepackage{booktabs}
+\usepackage{array}
+
+% Colors and links
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+% Bibliography
+\usepackage{natbib}
+\bibliographystyle{plainnat}
+
+% Section formatting
+\usepackage{titlesec}
+\titleformat{\section}{\normalfont\large\bfseries}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+
+% Abstract formatting
+\usepackage{abstract}
+\renewcommand{\abstractnamefont}{\normalfont\bfseries}
+\renewcommand{\abstracttextfont}{\normalfont\small}
+
+% Custom commands
+\newcommand{\keywords}[1]{\par\noindent\textbf{Keywords:} #1}
+
+% ============================================================================
+% DOCUMENT BEGINS
+% ============================================================================
+
+\begin{document}
+
+% ----------------------------------------------------------------------------
+% TITLE SECTION
+% ----------------------------------------------------------------------------
+\twocolumn[
+\begin{@twocolumnfalse}
+\begin{center}
+
+{\LARGE\bfseries Hospital Capacity Modeling Under Epidemic Conditions\\[0.5em]}
+
+\vspace{1em}
+
+{\large
+Jason Hunter, Apollo Hoffman, Malia Hayes
+}
+
+\vspace{0.5em}
+
+{\small
+
+}
+
+\vspace{0.5em}
+
+{\small December 2025}
+
+\vspace{1.5em}
+
+\end{center}
+\end{@twocolumnfalse}
+]
+
+% ----------------------------------------------------------------------------
+% INTRODUCTION
+% ----------------------------------------------------------------------------
+\section{Introduction}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Phasellus non metus viverra, molestie nisi sed, pellentesque lacus. Integer fermentum porta tellus, quis dignissim quam suscipit sit amet. In aliquet dui odio, at sodales nisi congue vitae. Maecenas ac nulla consequat, tempus lectus vitae, fermentum sem. Sed tellus eros, vulputate ac ultricies vitae, tristique ac lectus. Integer quis vehicula mi, venenatis euismod ante. Vivamus vel lacinia ligula. Etiam blandit mollis mi vitae placerat.
+Nam vestibulum viverra pretium. Quisque ornare purus non sodales porta. Proin blandit, urna non viverra luctus, enim tortor cursus urna, placerat fermentum ante urna a ipsum. Phasellus lacus magna, rhoncus et consectetur ut, porttitor sed turpis. Vestibulum a metus ante. Interdum et malesuada fames ac ante ipsum primis in faucibus. Nullam ut augue id orci eleifend luctus non in dui. Nunc varius varius est quis porta. Sed nec purus quis lectus porta pharetra. Sed ornare augue nec viverra congue. Etiam volutpat rhoncus lacus, bibendum interdum urna blandit eu.
+Integer mattis est ipsum, ut suscipit ex tincidunt in. Nam efficitur est vitae quam interdum venenatis. Donec quis neque tellus. Donec ac metus malesuada, ultricies nunc vel, faucibus odio. Duis eleifend, arcu sit amet maximus porttitor, lacus velit blandit lorem, sit amet imperdiet massa diam sed nunc. Ut consequat non felis eu laoreet. Duis pellentesque dignissim mi, quis vehicula augue ornare a. Etiam efficitur imperdiet lacus, quis tempus purus cursus ac.
+Donec quis magna non mauris mattis malesuada ac ut arcu. Proin sodales tempor dolor, vitae fringilla nisl ullamcorper convallis. Duis rhoncus arcu id placerat pretium. Suspendisse ullamcorper libero convallis, luctus eros quis, sagittis ipsum. Maecenas ac rutrum ligula, ut suscipit risus. Nulla purus nisl, hendrerit sed lectus in, iaculis iaculis odio. In tincidunt eleifend lectus, gravida accumsan nisl luctus efficitur. Nam sit amet lobortis ex. Nulla at bibendum sem, ut tincidunt erat. Nulla nibh erat, finibus ac pharetra ultricies, suscipit et augue.
+Curabitur hendrerit erat at tortor placerat, et faucibus mauris rutrum. Morbi venenatis euismod volutpat. Mauris consequat in purus in gravida. Nulla porttitor mollis nisi, ut lobortis sapien condimentum malesuada. Nulla facilisi. Vivamus maximus, risus ut ultricies porta, nisl risus pretium mauris, ac varius lacus sapien ac mauris. Quisque ut odio ornare tellus interdum vehicula. Suspendisse lacinia molestie quam, quis semper enim malesuada consequat. Pellentesque sed odio erat. Donec quis tortor nisi.
+
+% ----------------------------------------------------------------------------
+% METHODS
+% ----------------------------------------------------------------------------
+\section{Methods}
+
+To investigate the impact of hospital capacity on epidemic dynamics and mortality, we developed a deterministic, age-structured compartmental model extending the classical SEIR framework. 
+Our model, designated SEIXHRD (Susceptible-Exposed-Infected-Severe-Hospitalized-Recovered-Deceased), explicitly incorporates healthcare system constraints by differentiating between patients receiving care and those awaiting admission due to capacity saturation.
+
+\subsection{Model Structure and Compartments}
+
+The population is divided into $N$ age groups to account for age-dependent contact rates and disease severity. Each of these age groups is further split into the following compartments:
+\begin{itemize}
+    \item $S$: Susceptible individuals who are not yet infected.
+    \item $E$: Exposed individuals who have been infected but aren't yet infectious.
+    \item $I$: Infectious individuals
+    \item $X_{queued}$: Queued individuals with severe disease who need hospitalization and are waiting for a bed.
+    \item $X_{admitted}$: Individuals with severe disease who have been admitted but are not yet receiving full care, with a slightly reduced mortality rate.
+    \item $H_{ward}$: Individuals with a ward bed, which reduced mortality rates even more.
+    \item $H_{icu}$: Individuals with an ICU bed receiving the most critical care and the lowest mortality rates.
+    \item $R$: Recovered individuals who have survived and gained immunity (either temporary or permanent).
+    \item $D$: Cumulative deaths that are tracked seperately between those who received care $D_{treated}$ and those who did not $D_{untreated}$.
+\end{itemize}
+
+\subsection{Capacity Constraints and Gating}
+
+A central feature of this model is the implementation of smooth capacity constraints rather than hard cutoff thresholds. In our model, the admission rates degrade non-linearly as hospital occupancy approaches its capacity.
+
+To do this, a Hill function was utilized to model the probability of admission, g(H), defined as:
+
+$$g(H) = \frac{1}{1 + (\frac{H}{K})^n}$$
+
+Where $H$ is the current occupancy, $K$ is the hospital capacity (combined ward and ICU bed counts), and $n$ is the Hill coefficient that determines the steepness of the cutoff. 
+This gating function controls the flow from $X_{queued}$ to $X_{admitted}$ and from $H_{ward}$ to $H_{icu}$. 
+When occupancy is low ($H \ll K$), $g(H) \approx 1$, allowing normal admission flow. 
+As $H$ approaches $K$, $g(H)$ drops rapidly, causing patients to accumulate in the $X_{queued}$ compartment where they face higher mortality rates.
+
+
+\subsection{Differential Mortality}
+
+To capture the lethality of hospital collapse, we assigned different mortality rates based on care status. The mortality rate for the queued compartment ($\mu_{untreated}$) is significantly higher than that of the admitted compartment ($\mu_{treated}$), reflecting the lack of life-saving interventions like intravenous fluids and ventilators.
+
+\subsection{Vaccination and Interventions}
+
+The model includes a three-factor vaccination component, parameterizing vaccine efficacy against infection ($VE_I$), severe disease ($VE_S$), and death ($VE_D$).
+We also implemented time-dependent transmission modifiers in an attempt to simulate non-pharmaceutical interventions (NPIs) and seasonal forcing.
+The system of ODEs was solved using Python's \texttt{scipy.integrate.solve\_ivp} method.
+
+\subsection{Differential Equations}
+
+The model dynamics are governed by the following system of ordinary differential equations:
+
+% Add ODEs here.
+
+% ----------------------------------------------------------------------------
+% RESULTS
+% ----------------------------------------------------------------------------
+\section{Results}
+
+% ----------------------------------------------------------------------------
+% DISCUSSION
+% ----------------------------------------------------------------------------
+\section{Discussion}
+
+The primary goal of developing this model was to study and evaluate how hospital capacity limitations influence epidemic outcomes, specifically mortality and recovery rates. The simulations using the SEIXHRD model showed that fixed healthcare capacity creates a critical “tipping point” in epidemic dynamics that are not observable in standard SIR modeling.
+
+\subsection{Non-linear Impact of Capacity Saturation}
+
+Our results demonstrate that hospital capacity acts as a non-linear threshold for mortality. 
+In scenarios where the peak infection demand remained below capacity ($H < K$), the infection fatality rate (IFR) remained constant and relatively low. 
+However, once the "surge" exceeded capacity, mortality rates did not increase linearly but rather spiked aggressively. 
+This supports the hypothesis that the "flatten the curve" strategy is mechanistically valid not just for delaying infections, but for reducing the total area under the mortality curve. 
+As shown in our comparison of hospital burden strategies, increasing capacity provides diminishing returns once the system is well-resourced, but for resource-limited settings (e.g., rural systems), small increases in capacity showed significant reductions in mortality.
+
+\subsection{The Hidden Mortality of Waiting Times}
+
+By separating the “Severe” compartment into $X_{queued}$ and $X_{admitted}$, our model shows the hidden cost of wait times.
+In high-transmission scenarios ($R_0 > 2.5$), the bottleneck wasn't always the total number of beds, but the rate of flow into them.
+The queue accumulation resulted in a significant number of “untreated” deaths.
+
+\subsection{Policy Implications and Interventions}
+
+Our analysis of intervention strategies highlights that early, strong interventions are far superior to delayed or cyclical strategies in preserving hospital function.
+The “Delayed Strong” strategy often resulted in a secondary peak that still overwhelmed ICU capacity because the initial seeding was already too widespread. 
+This suggests that interventions must be called by early indicators like transmission rates rather than late indicators like hospital occupancy overflow to be effective.
+
+\subsection{Model Limitations}
+
+While the SEIXHRD model attempts to add as much realism as possible, there are many limitations that prevent it from actually being useful for predicting real world dynamics.
+The model lacks the ability to effectively simulate healthcare worker capacity as well, something that definitely matters when attempting to model the impact hospitalization has on epidemics.
+Even if the hospitals have beds available, there needs to be healthy staff to operate the facilities. 
+This, alongside parametrization with real-world epidemic data would give the model significantly more credibilty.
+
+% ----------------------------------------------------------------------------
+% CONCLUSION
+% ----------------------------------------------------------------------------
+\section{Conclusion}
+
+We successfully demonstrated that incorporating hospitalization with capacity constraints into the SIR framework fundamentally alters the predicted infection fatality rate.
+The model confirms that mortality is not an intrinsic property of the virus alone but a dynamic variable dependent on the operational capacity of the healthcare system. Consequently, public health models that neglect capacity constraints likely underestimate death tolls in surge scenarios.
+
+% ----------------------------------------------------------------------------
+% GITHUB LINK
+% ----------------------------------------------------------------------------
+
+\section*{GitHub Repository}
+
+All the code for the model, is available on GitHub:
+
+\begin{center}
+\url{https://github.com/JasonHunter95/hospital-model}
+\end{center}
+
+% ----------------------------------------------------------------------------
+% REFERENCES
+% ----------------------------------------------------------------------------
+\begin{thebibliography}{99}
+
+
+\end{thebibliography}
+
+\end{document}
