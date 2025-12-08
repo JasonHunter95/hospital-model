@@ -96,7 +96,7 @@ The standard SIR model assumes that all infected individuals recover at a consta
 
 In real epidemics like COVID-19, access to medical care determines whether infected individuals recover or die. The availability of hospital resources - including ward beds, ICU beds, ventilators, treatments, and healthcare workers - determine the outcome for each individual. The classic SIR model cannot account for this, as it lumps deaths into the “removed” category and does not differentiate between mild and severe illness. As a result, this model cannot address vital healthcare considerations such as: How does hospital overload influence recovery rates, mortality, and outbreak cycles? How does treatment prioritization or ICU scarcity alter outcomes across age groups? How do waiting times influence severe outcomes and deaths?
 
-Previous studies have highlighted the limitations of excluding hospital considerations from infectious disease models. For example, projections of hospital demand from early COVID-19 showed ICU capacity could be exceeded within weeks, with mortality climbing as care availability declined.\textsuperscript{1}  Another analysis showed that the recovery rate $\gamma$ falls as hospitals fill, directly contradicting the constant $\gamma$ assumption of the classic SIR model. Furthermore, the hospital bed parameter also caused complex epidemic trajectories - including sudden shifts between controlled and uncontrolled outbreaks, and scenarios where an epidemic persists even when the basic reproduction number $R_0$ is below one.\textsuperscript{2} These findings illustrate that (1) hospital overload is not hypothetical and (2) $R_0$ alone does not determine epidemic outcomes; capacity constraints play a pivotal role. 
+Previous studies have highlighted the limitations of excluding hospital considerations from infectious disease models. For example, projections of hospital demand from early COVID-19 showed ICU capacity could be exceeded within weeks, with mortality climbing as care availability declined ~\cite{weissman2020}.  Another analysis showed that the recovery rate $\gamma$ falls as hospitals fill, directly contradicting the constant $\gamma$ assumption of the classic SIR model. Furthermore, the hospital bed parameter also caused complex epidemic trajectories - including sudden shifts between controlled and uncontrolled outbreaks, and scenarios where an epidemic persists even when the basic reproduction number $R_0$ is below one ~\cite{shan2014}. These findings illustrate that (1) hospital overload is not hypothetical and (2) $R_0$ alone does not determine epidemic outcomes; capacity constraints play a pivotal role. 
 
 To more accurately model healthcare limitations and severe disease, epidemiological models must move beyond the traditional SIR framework. Modeling hospitalization requires new compartments that represent: (1) patients requiring care, (2) patients admitted to the hospital, and (3) patients who are forced to wait for admission due to oversaturation. The new model must also distinguish between ICU and ward care, account for differences in disease severity and susceptibility across age groups and occupations, incorporate vaccination and treatment strategies, and separately track deaths and recoveries. 
 
@@ -198,7 +198,7 @@ The population is divided into $N$ age groups to account for age-dependent conta
     \item $H_{ward}$: Individuals with a ward bed, which reduced mortality rates even more.
     \item $H_{icu}$: Individuals with an ICU bed receiving the most critical care and the lowest mortality rates.
     \item $R$: Recovered individuals who have survived and gained immunity (either temporary or permanent).
-    \item $D$: Cumulative deaths that are tracked seperately between those who received care $D_{treated}$ and those who did not $D_{untreated}$.
+    \item $D$: Cumulative deaths that are tracked separately between those who received care $D_{treated}$ and those who did not $D_{untreated}$.
 \end{itemize}
 
 \subsection{Model Flowchart}
@@ -372,7 +372,7 @@ The model confirms that mortality is not an intrinsic property of the virus alon
 
 \section*{GitHub Repository}
 
-All the code for the model, is available on GitHub:
+All the code for the model is available on GitHub:
 
 \begin{center}
 \url{https://github.com/JasonHunter95/hospital-model}
@@ -383,6 +383,11 @@ All the code for the model, is available on GitHub:
 % ----------------------------------------------------------------------------
 \begin{thebibliography}{99}
 
+\bibitem{weissman2020}
+Weissman GE, Crane-Droesch A, Chivers C, et al. Locally Informed Simulation to Predict Hospital Capacity Needs During the COVID-19 Pandemic. \textit{Ann Intern Med}. 2020;173(1):21-28. doi:10.7326/M20-1260
+
+\bibitem{shan2014}
+Shan C, Zhu H. Bifurcations and complex dynamics of an SIR model with the impact of the number of hospital beds. \textit{Journal of Differential Equations}. 2014;257(5):1662-1688. doi:10.1016/j.jde.2014.05.030
 
 \end{thebibliography}
 
