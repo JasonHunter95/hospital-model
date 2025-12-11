@@ -16,14 +16,9 @@ Note on data structure:
 
 import pytest
 import numpy as np
-import sys
-import os
 
-# Add parent directory to path to import modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from simulate_model import simulate_model
-from scenarios import (
+from hospital_model import simulate_model
+from hospital_model.scenarios import (
     AGE_PARAMS_DEFAULT,
     CONTACT_MATRIX_DEFAULT,
     DEFAULT_SIM_PARAMS,
@@ -32,7 +27,7 @@ from scenarios import (
     VACCINE_EFFICACY_PARAMS,
     VACCINE_PROFILES
 )
-from scenario_helpers import (
+from hospital_model.scenario_helpers import (
     get_vaccine_profile,
     list_vaccine_profiles,
     describe_vaccine_profile

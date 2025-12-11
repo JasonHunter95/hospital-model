@@ -1,41 +1,22 @@
 from manim import * # type: ignore
-import sys
-import os
 import numpy as np
 
-# adds parent directory to path to import model modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from simulate_model import simulate_model
-    from scenario_helpers import (
-        get_scenario_params, compare_vaccine_profiles
-    )
-    from scenarios import (
-        INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
-        INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
-    )
-except ImportError:
-    # fallback for when running from different contexts
-    sys.path.append("..")
-    from simulate_model import simulate_model
-    from scenario_helpers import (
-        get_scenario_params, compare_vaccine_profiles
-    )
-    from scenarios import (
-        INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
-        INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE
-    )
+from hospital_model import simulate_model
+from hospital_model.scenario_helpers import get_scenario_params, compare_vaccine_profiles
+from hospital_model.scenarios import (
+    INTERVENTION_NONE, INTERVENTION_EARLY_STRONG, INTERVENTION_DELAYED_STRONG,
+    INTERVENTION_CYCLICAL, INTERVENTION_EARLY_MODERATE,
+    AGE_PARAMS_EMPIRICAL, CONTACT_MATRIX_DEFAULT
+)
 
 class ModelData:
     """Helper class to run simulations and fetch data for drawing the animations."""
     def __init__(self, scenario='seasonal_flu'):
         try:
             self.params = get_scenario_params(scenario)
-        except:
+        except Exception:
             # fallback if scenario not found, use the manual defaults set here
             print(f"Warning: Scenario '{scenario}' not found. Using default parameters.")
-            from scenarios import AGE_PARAMS_EMPIRICAL, CONTACT_MATRIX_DEFAULT
             self.params = {
                 'beta_base': 0.35,
                 'age_params': AGE_PARAMS_EMPIRICAL,

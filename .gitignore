@@ -29,3 +29,11 @@ paper/main.log
 OLDREADME.md
 paper/main.aux
 paper/main 2.synctex.gz
+src/hospital_model.egg-info/dependency_links.txt
+.gitignore
+src/hospital_model.egg-info/requires.txt
+.gitignore
+src/hospital_model.egg-info/PKG-INFO
+src/hospital_model.egg-info/SOURCES.txt
+src/hospital_model.egg-info/top_level.txt
+src/hospital_model.egg-info**

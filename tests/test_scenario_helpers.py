@@ -20,7 +20,7 @@ This module tests all 14 helper functions for scenario and configuration managem
 
 import pytest
 import numpy as np
-from scenario_helpers import (
+from hospital_model.scenario_helpers import (
     list_scenarios,
     describe_scenario,
     get_healthcare_systems,
@@ -38,8 +38,8 @@ from scenario_helpers import (
     list_vaccine_profiles,
     get_vaccine_profile,
 )
-from scenarios import SCENARIO_REGISTRY, AGE_PARAMS_DEFAULT, AGE_PARAMS_EMPIRICAL, HEALTHCARE_SYSTEM_URBAN
-from simulate_model import simulate_model
+from hospital_model.scenarios import SCENARIO_REGISTRY, AGE_PARAMS_DEFAULT, AGE_PARAMS_EMPIRICAL, HEALTHCARE_SYSTEM_URBAN
+from hospital_model import simulate_model
 
 
 # =============================================================================

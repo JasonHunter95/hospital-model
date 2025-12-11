@@ -14,9 +14,9 @@ The model supports two solver backends:
 
 import pytest
 import numpy as np
-from simulate_model import simulate_model
-from scenario_helpers import get_scenario_params
-from scenarios import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT
+from hospital_model import simulate_model
+from hospital_model.scenario_helpers import get_scenario_params
+from hospital_model.scenarios import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT
 
 
 # =============================================================================

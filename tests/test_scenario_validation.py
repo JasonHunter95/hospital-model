@@ -13,9 +13,9 @@ Uses pytest-xdist for parallel execution: pytest -n auto
 
 import pytest
 import numpy as np
-from scenarios import SCENARIO_REGISTRY
-from scenario_helpers import get_scenario_params
-from simulate_model import simulate_model
+from hospital_model.scenarios import SCENARIO_REGISTRY
+from hospital_model.scenario_helpers import get_scenario_params
+from hospital_model import simulate_model
 
 
 # =============================================================================

@@ -4,13 +4,8 @@ Shared pytest fixtures for hospital model tests.
 
 import pytest
 import numpy as np
-import sys
-import os
 
-# Add parent directory to path to import modules
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from scenarios import (
+from hospital_model.scenarios import (
     AGE_PARAMS_DEFAULT,
     CONTACT_MATRIX_DEFAULT,
     DEFAULT_SIM_PARAMS,

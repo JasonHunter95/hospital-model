@@ -24,7 +24,7 @@ Configurations are organized hierarchically:
 
 import numpy as np
 from typing import List, Optional
-from model_types import (
+from .model_types import (
     SimParams,
     CapacityParams,
     AgeParams,

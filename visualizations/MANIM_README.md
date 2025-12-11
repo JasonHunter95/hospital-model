@@ -2,7 +2,7 @@
 
 Animated visualizations of the SEIXHRD epidemic model using [Manim](https://www.manim.community/).
 
-The actual libary that 3b1b uses is his own fork, but the main libary is honestly just easier to use in my opinion.
+The actual library that 3b1b uses is his own fork, but the main library is honestly just easier to use in my opinion.
 
 ## Prerequisites
 

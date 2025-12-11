@@ -12,13 +12,9 @@ This module tests the open population dynamics features:
 
 import pytest
 import numpy as np
-import sys
-import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from simulate_model import simulate_model
-from demographics_helpers import (
+from hospital_model import simulate_model
+from hospital_model.demographics_helpers import (
     compute_birth_rate,
     compute_background_death_rate,
     validate_demographic_params,

@@ -10,12 +10,8 @@ Tests cover:
 
 import pytest
 import numpy as np
-import sys
-import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from simulate_model import simulate_model
+from hospital_model import simulate_model
 
 
 # ========================================

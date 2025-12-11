@@ -33,19 +33,19 @@ Numerical Integration:
 import warnings
 import numpy as np
 from scipy.integrate import odeint, solve_ivp
-import scenarios
-from utils import (
+from . import scenarios
+from .utils import (
     validate_age_structured_inputs,
     coerce_initial_vector,
     pack_state,
 )
-from derivatives import (
+from .derivatives import (
     master_deriv_solve_ivp,
     master_deriv,
 )
-from demographics_helpers import validate_demographic_params
-from time_varying_helpers import seasonal_forcing, policy_multiplier
-from model_types import (
+from .demographics_helpers import validate_demographic_params
+from .time_varying_helpers import seasonal_forcing, policy_multiplier
+from .model_types import (
     ODEParams, SimParams, CapacityParams, VaccineEfficacyParams, 
     VaccineWaningParams, DemographicParams, SeasonalParams, 
     Intervention, AgeParams, ContactMatrix
@@ -652,7 +652,7 @@ def simulate_model(
     # ========================================
     # Process Results
     # ========================================
-    from result_processor import ResultProcessor
+    from .result_processor import ResultProcessor
 
 
 

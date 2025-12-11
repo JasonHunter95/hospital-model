@@ -18,7 +18,7 @@ import pytest
 import sympy as sp
 from sympy import Symbol, symbols, simplify, expand, Eq, cos, pi
 import numpy as np
-from capacity_helpers import hill_gate
+from hospital_model.capacity_helpers import hill_gate
 
 
 # =============================================================================
@@ -1127,7 +1127,7 @@ class TestNumericalVerification:
         """
         Verify seasonal_forcing() function matches symbolic formula.
         """
-        from time_varying_helpers import seasonal_forcing
+        from hospital_model.time_varying_helpers import seasonal_forcing
         
         t_sym = Symbol('t', real=True)
         beta_sym = Symbol('beta', positive=True)

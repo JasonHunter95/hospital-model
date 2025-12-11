@@ -11,14 +11,10 @@ Tests cover:
 
 import pytest
 import numpy as np
-import sys
-import os
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from capacity_helpers import hill_gate
-from utils import validate_age_structured_inputs, coerce_initial_vector
-from time_varying_helpers import seasonal_forcing, policy_multiplier
+from hospital_model.capacity_helpers import hill_gate
+from hospital_model.utils import validate_age_structured_inputs, coerce_initial_vector
+from hospital_model.time_varying_helpers import seasonal_forcing, policy_multiplier
 
 
 # ========================================
