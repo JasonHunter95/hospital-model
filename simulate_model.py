@@ -286,31 +286,6 @@ def simulate_model(
     Differential mortality:
     - D_treated: deaths occurring with appropriate care
     - D_untreated: excess deaths from capacity constraints
-    
-    Examples
-    --------
-    >>> from scenarios import AGE_PARAMS_DEFAULT, CONTACT_MATRIX_DEFAULT, AGE_POPS_DEFAULT
-    >>> from scenarios import DEFAULT_SIM_PARAMS, DEFAULT_CAPACITY_PARAMS
-    >>> 
-    >>> # New grouped parameter style (recommended)
-    >>> results = simulate_model(
-    ...     beta_base=0.3,
-    ...     age_params=AGE_PARAMS_DEFAULT,
-    ...     contact_matrix=CONTACT_MATRIX_DEFAULT,
-    ...     age_pops=AGE_POPS_DEFAULT,
-    ...     sim_config={'Tmax': 365, 'time_step': 0.1},
-    ...     capacity_config={'ward_capacity': 80, 'icu_capacity': 20},
-    ...     vaccine_config={
-    ...         'coverage': [0.2, 0.3, 0.7],
-    ...         'VE_infection': 0.8,
-    ...         'VE_severe': 0.9,
-    ...         'VE_death': 0.95,
-    ...         'vaccination_rate': 0.005
-    ...     }
-    ... )
-    >>> 
-    >>> print(f"Peak ICU: {max(results['H_icu_total']):.0f}")
-    >>> print(f"Total deaths: {results['D_total'][-1]:.0f}")
     """
     # ========================================
     # Parameter Setup with Defaults
